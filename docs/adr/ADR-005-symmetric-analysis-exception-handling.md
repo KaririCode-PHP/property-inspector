@@ -2,7 +2,7 @@
 
 | Field | Value |
 |---|---|
-| Status | Accepted — 2026-09-28 |
+| Status | Accepted — 2026-09-28; amended in 3.0.0 by ADR-011 (2501 folded into 2506) |
 | Component | kariricode/property-inspector 2.1 |
 | Standards | KaririCode Spec V4.3.3 §8.4 |
 | Related | ADR-003, ADR-004 |
@@ -35,4 +35,5 @@ Add a `catch (\Exception)` arm, between the reflection and error arms, and a fac
 ## References
 
 - PHP manual, `ReflectionAttribute::newInstance()` — https://www.php.net/manual/en/reflectionattribute.newinstance.php
-- Tests: `AttributeAnalyzerTest::testAnalyzeObjectWrapsAttributeConstructorExceptionAsCode2506`, `PropertyInspectionExceptionTest::testFailedToAnalyzeObjectExceptionWrapsException`.
+- Tests in the 2.x line: `AttributeAnalyzerTest::testAnalyzeObjectWrapsAttributeConstructorExceptionAsCode2506` and `PropertyInspectionExceptionTest::testFailedToAnalyzeObjectExceptionWrapsException`.
+- Tests in 3.0: `ReflectionPropertyInspectorTest::anAttributeThatCannotBeInstantiatedIsARuntimeFaultRaisedBeforeTheHandlerRuns` and `ExceptionModelTest`.

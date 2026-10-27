@@ -2,7 +2,7 @@
 
 | Field | Value |
 |---|---|
-| Status | Accepted — 2026-09-28 |
+| Status | Superseded in 3.0.0 by ADR-010 — accepted 2026-09-28; 3.0 no longer wraps handler exceptions at all |
 | Component | kariricode/property-inspector 2.1 |
 | Standards | KaririCode Spec V4.3.3 §8.4 |
 | Related | ADR-003, ADR-005 |
@@ -36,4 +36,4 @@ Add `catch (PropertyInspectionException $e) { throw $e; }` as the first catch ar
 ## References
 
 - PHP manual, Exceptions: the first matching catch block wins — https://www.php.net/manual/en/language.exceptions.php
-- Test: `PropertyInspectorTest::testInspectPropagatesAnalyzerExceptionWithoutDoubleWrapping`.
+- Test in the 2.x line: `PropertyInspectorTest::testInspectPropagatesAnalyzerExceptionWithoutDoubleWrapping`. In 3.0 the question disappears, because handler exceptions are no longer wrapped at all (ADR-010).
