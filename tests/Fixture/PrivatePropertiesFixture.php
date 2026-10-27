@@ -9,7 +9,7 @@ use KaririCode\PropertyInspector\Tests\Fixture\Attribute\Validate;
 final class PrivatePropertiesFixture
 {
     #[Validate(processors: ['required'])]
-    private string $secret = 'hidden-value';
+    private string $secret = 'hidden-value'; // secret-scan:allow (fixture value, not a credential)
 
     #[Validate(processors: ['required'])]
     protected string $internal = 'protected-value';

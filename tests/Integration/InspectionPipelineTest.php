@@ -5,10 +5,11 @@ declare(strict_types=1);
 namespace KaririCode\PropertyInspector\Tests\Integration;
 
 use KaririCode\PropertyInspector\AttributeAnalyzer;
-use KaririCode\PropertyInspector\Contract\PropertyAttributeHandler;
-use KaririCode\PropertyInspector\Contract\PropertyChangeApplier;
 use KaririCode\PropertyInspector\Tests\Fixture\Attribute\Sanitize;
 use KaririCode\PropertyInspector\Tests\Fixture\Attribute\Validate;
+use KaririCode\PropertyInspector\Tests\Fixture\ReflectionChangeApplier;
+use KaririCode\PropertyInspector\Tests\Fixture\SimpleValidationHandler;
+use KaririCode\PropertyInspector\Tests\Fixture\TrimLowercaseHandler;
 use KaririCode\PropertyInspector\Tests\Fixture\UserFixture;
 use KaririCode\PropertyInspector\Utility\PropertyAccessor;
 use KaririCode\PropertyInspector\Utility\PropertyInspector;
@@ -143,132 +144,5 @@ final class InspectionPipelineTest extends TestCase
         self::assertArrayHasKey('name', $errors);
         self::assertArrayHasKey('email', $errors);
         self::assertArrayHasKey('age', $errors);
-    }
-}
-
-// ── Test-scoped handler: Trim + Lowercase ────────────────────────────
-
-final class TrimLowercaseHandler implements PropertyAttributeHandler
-{
-    /** @var array<string, mixed> */
-    private array $processed = [];
-
-    public function handleAttribute(string $propertyName, object $attribute, mixed $value): mixed
-    {
-        if ($attribute instanceof Sanitize) {
-            $sanitized = $value;
-            foreach ($attribute->sanitizers as $sanitizer) {
-                $sanitized = match ($sanitizer) {
-                    'trim' => \is_string($sanitized) ? trim($sanitized) : $sanitized,
-                    'lowercase' => \is_string($sanitized) ? strtolower($sanitized) : $sanitized,
-                    default => $sanitized,
-                };
-            }
-            $this->processed[$propertyName] = $sanitized;
-
-            return $sanitized;
-        }
-
-        return $value;
-    }
-
-    public function getProcessedPropertyValues(): array
-    {
-        return $this->processed;
-    }
-
-    public function getProcessingResultMessages(): array
-    {
-        return [];
-    }
-
-    public function getProcessingResultErrors(): array
-    {
-        return [];
-    }
-}
-
-// ── Test-scoped handler: Simple validation ───────────────────────────
-
-final class SimpleValidationHandler implements PropertyAttributeHandler
-{
-    /** @var array<string, mixed> */
-    private array $processed = [];
-
-    /** @var array<string, array<string, string>> */
-    private array $errors = [];
-
-    public function handleAttribute(string $propertyName, object $attribute, mixed $value): mixed
-    {
-        $this->processed[$propertyName] = $value;
-
-        if ($attribute instanceof Validate) {
-            foreach ($attribute->processors as $rule) {
-                $error = $this->validateRule($rule, $value);
-                if ($error !== null) {
-                    $this->errors[$propertyName][$rule] = $error;
-                }
-            }
-        }
-
-        return $value;
-    }
-
-    private function validateRule(string $rule, mixed $value): ?string
-    {
-        return match (true) {
-            $rule === 'required' && ($value === '' || $value === null) => 'Field is required',
-            $rule === 'email' && \is_string($value) && ! str_contains($value, '@') => 'Invalid email',
-            str_starts_with($rule, 'min:') && \is_int($value) => $this->validateMin($rule, $value),
-            str_starts_with($rule, 'min:') && \is_string($value) => $this->validateMinLength($rule, $value),
-            default => null,
-        };
-    }
-
-    private function validateMin(string $rule, int $value): ?string
-    {
-        $min = (int) substr($rule, 4);
-
-        return $value < $min ? "Value must be at least {$min}" : null;
-    }
-
-    private function validateMinLength(string $rule, string $value): ?string
-    {
-        $min = (int) substr($rule, 4);
-
-        return \strlen($value) < $min ? "Must be at least {$min} characters" : null;
-    }
-
-    public function getProcessedPropertyValues(): array
-    {
-        return $this->processed;
-    }
-
-    public function getProcessingResultMessages(): array
-    {
-        return [];
-    }
-
-    public function getProcessingResultErrors(): array
-    {
-        return $this->errors;
-    }
-}
-
-// ── Test-scoped applier: uses PropertyAccessor to write back ─────────
-
-final class ReflectionChangeApplier implements PropertyChangeApplier
-{
-    /** @param array<string, mixed> $changes */
-    public function __construct(private readonly array $changes)
-    {
-    }
-
-    public function applyChanges(object $object): void
-    {
-        foreach ($this->changes as $propertyName => $value) {
-            $accessor = new PropertyAccessor($object, $propertyName);
-            $accessor->setValue($value);
-        }
     }
 }

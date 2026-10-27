@@ -9,14 +9,18 @@ use KaririCode\PropertyInspector\Exception\PropertyInspectionException;
 use KaririCode\PropertyInspector\Tests\Fixture\Attribute\BrokenAttribute;
 use KaririCode\PropertyInspector\Tests\Fixture\Attribute\ProcessableAttribute;
 use KaririCode\PropertyInspector\Tests\Fixture\Attribute\Sanitize;
+use KaririCode\PropertyInspector\Tests\Fixture\Attribute\ThrowingAttribute;
 use KaririCode\PropertyInspector\Tests\Fixture\Attribute\Transform;
 use KaririCode\PropertyInspector\Tests\Fixture\Attribute\Validate;
 use KaririCode\PropertyInspector\Tests\Fixture\BrokenAttributeFixture;
 use KaririCode\PropertyInspector\Tests\Fixture\MixedAttributeFixture;
 use KaririCode\PropertyInspector\Tests\Fixture\NoAttributeFixture;
 use KaririCode\PropertyInspector\Tests\Fixture\PrivatePropertiesFixture;
+use KaririCode\PropertyInspector\Tests\Fixture\ThrowingAttributeFixture;
+use KaririCode\PropertyInspector\Tests\Fixture\UninitializedPropertyFixture;
 use KaririCode\PropertyInspector\Tests\Fixture\UserFixture;
 use PHPUnit\Framework\Attributes\CoversClass;
+use PHPUnit\Framework\Attributes\Group;
 use PHPUnit\Framework\TestCase;
 
 #[CoversClass(AttributeAnalyzer::class)]
@@ -210,13 +214,14 @@ final class AttributeAnalyzerTest extends TestCase
 
     // ── error handling ───────────────────────────────────────────────
 
+    #[Group('fail-closed')]
     public function testAnalyzeObjectWrapsReflectionExceptionFromBrokenAttribute(): void
     {
         // BrokenAttributeFixture has a property annotated with #[BrokenAttribute],
         // whose constructor throws ReflectionException.
         // When analyzeObject calls cacheObjectMetadata -> newInstance(),
         // the exception propagates up and is caught by the catch(\ReflectionException)
-        // block in analyzeObject (lines 36-37 of AttributeAnalyzer).
+        // block in analyzeObject.
         //
         // NOTE: We use try/catch instead of expectException() to ensure PCOV
         // instruments the catch block in AttributeAnalyzer (not just the throw).
@@ -230,5 +235,58 @@ final class AttributeAnalyzerTest extends TestCase
             self::assertStringContainsString('Failed to analyze object using reflection', $e->getMessage());
             self::assertSame(2501, $e->getCode());
         }
+    }
+
+    #[Group('fail-closed')]
+    public function testAnalyzeObjectWrapsAttributeConstructorExceptionAsCode2506(): void
+    {
+        // A non-reflection exception thrown by an attribute constructor must be
+        // wrapped (2506) instead of escaping raw (ADR-005).
+        $analyzer = new AttributeAnalyzer(ThrowingAttribute::class);
+
+        try {
+            $analyzer->analyzeObject(new ThrowingAttributeFixture());
+            self::fail('Expected PropertyInspectionException was not thrown');
+        } catch (PropertyInspectionException $e) {
+            self::assertSame(2506, $e->getCode());
+            self::assertInstanceOf(\RuntimeException::class, $e->getPrevious());
+        }
+    }
+
+    #[Group('fail-closed')]
+    public function testAnalyzeObjectWrapsUninitializedTypedPropertyAsCode2503(): void
+    {
+        // Documented precondition (SPEC-001 INV-011): annotated properties must be
+        // initialized; reading one that is not raises \Error, surfaced as 2503.
+        $analyzer = new AttributeAnalyzer(Validate::class);
+
+        try {
+            $analyzer->analyzeObject(new UninitializedPropertyFixture());
+            self::fail('Expected PropertyInspectionException was not thrown');
+        } catch (PropertyInspectionException $e) {
+            self::assertSame(2503, $e->getCode());
+            self::assertInstanceOf(\Error::class, $e->getPrevious());
+        }
+    }
+
+    // ── cache semantics ──────────────────────────────────────────────
+
+    public function testAnalyzeObjectReusesAttributeInstancesUntilCacheIsCleared(): void
+    {
+        $analyzer = new AttributeAnalyzer(Validate::class);
+        $user = new UserFixture(name: 'Walmir', email: 'w@test.com', age: 30);
+
+        $first = $analyzer->analyzeObject($user)['name']['attributes'][0];
+        $second = $analyzer->analyzeObject($user)['name']['attributes'][0];
+
+        // Cache hit: the very same attribute instance is handed out (SPEC-001 INV-012).
+        self::assertSame($first, $second);
+
+        $analyzer->clearCache();
+        $afterClear = $analyzer->analyzeObject($user)['name']['attributes'][0];
+
+        // Cache miss after clearCache(): attributes are instantiated again.
+        self::assertNotSame($first, $afterClear);
+        self::assertEquals($first, $afterClear);
     }
 }

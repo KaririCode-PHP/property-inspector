@@ -5,10 +5,10 @@ declare(strict_types=1);
 namespace KaririCode\PropertyInspector\Tests\Unit\Exception;
 
 use KaririCode\PropertyInspector\Exception\PropertyInspectionException;
-use PHPUnit\Framework\Attributes\CoversNothing;
+use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\TestCase;
 
-#[CoversNothing]
+#[CoversClass(PropertyInspectionException::class)]
 final class PropertyInspectionExceptionTest extends TestCase
 {
     public function testFailedToAnalyzeObjectReflectionWrapsReflectionException(): void
@@ -31,6 +31,16 @@ final class PropertyInspectionExceptionTest extends TestCase
         self::assertStringContainsString('type mismatch', $exception->getMessage());
         self::assertSame($cause, $exception->getPrevious());
         self::assertSame(2503, $exception->getCode());
+    }
+
+    public function testFailedToAnalyzeObjectExceptionWrapsException(): void
+    {
+        $cause = new \RuntimeException('analysis runtime issue');
+        $exception = PropertyInspectionException::failedToAnalyzeObjectException($cause);
+
+        self::assertStringContainsString('analysis runtime issue', $exception->getMessage());
+        self::assertSame($cause, $exception->getPrevious());
+        self::assertSame(2506, $exception->getCode());
     }
 
     public function testFailedToInspectObjectReflectionWrapsReflectionException(): void
@@ -72,10 +82,11 @@ final class PropertyInspectionExceptionTest extends TestCase
             PropertyInspectionException::failedToAnalyzeObjectReflection(new \ReflectionException())->getCode(),
             PropertyInspectionException::failedToInspectObjectReflection(new \ReflectionException())->getCode(),
             PropertyInspectionException::failedToAnalyzeObjectError(new \Error())->getCode(),
+            PropertyInspectionException::failedToAnalyzeObjectException(new \Exception())->getCode(),
             PropertyInspectionException::failedToInspectObjectException(new \Exception())->getCode(),
             PropertyInspectionException::failedToInspectObjectError(new \Error())->getCode(),
         ];
 
-        self::assertCount(5, array_unique($codes));
+        self::assertCount(6, array_unique($codes));
     }
 }

@@ -6,6 +6,17 @@ namespace KaririCode\PropertyInspector\Contract;
 
 use KaririCode\PropertyInspector\Exception\PropertyInspectionException;
 
+/**
+ * Port that turns an object into the list of its properties carrying a target
+ * attribute, with each property's current value and attribute instances.
+ * Implementations own any reflection caching; clearCache() resets it.
+ *
+ * Thread-safety: defined by each implementation; the reference implementation
+ * documents its cache behaviour.
+ *
+ * @see \KaririCode\PropertyInspector\AttributeAnalyzer Reference implementation
+ * @since 1.0.0
+ */
 interface AttributeAnalyzer
 {
     /**
@@ -24,6 +35,8 @@ interface AttributeAnalyzer
      *
      * Useful for long-running processes or after dynamic class modifications
      * to force re-analysis of previously cached class structures.
+     *
+     * @since 2.0.0
      */
     public function clearCache(): void;
 }

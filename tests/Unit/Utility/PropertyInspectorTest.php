@@ -9,11 +9,13 @@ use KaririCode\PropertyInspector\Contract\AttributeAnalyzer as AttributeAnalyzer
 use KaririCode\PropertyInspector\Exception\PropertyInspectionException;
 use KaririCode\PropertyInspector\Tests\Fixture\Attribute\Sanitize;
 use KaririCode\PropertyInspector\Tests\Fixture\Attribute\Validate;
+use KaririCode\PropertyInspector\Tests\Fixture\FailingAttributeHandler;
 use KaririCode\PropertyInspector\Tests\Fixture\NoAttributeFixture;
 use KaririCode\PropertyInspector\Tests\Fixture\SpyAttributeHandler;
 use KaririCode\PropertyInspector\Tests\Fixture\UserFixture;
 use KaririCode\PropertyInspector\Utility\PropertyInspector;
 use PHPUnit\Framework\Attributes\CoversClass;
+use PHPUnit\Framework\Attributes\Group;
 use PHPUnit\Framework\Attributes\UsesClass;
 use PHPUnit\Framework\TestCase;
 
@@ -78,7 +80,7 @@ final class PropertyInspectorTest extends TestCase
         self::assertSame(2, $handler->getCallCount());
 
         $properties = array_map(
-            static fn (array $call): string => $call['propertyName'],
+            static fn(array $call): string => $call['propertyName'],
             $handler->getCalls(),
         );
         self::assertContains('name', $properties);
@@ -102,9 +104,10 @@ final class PropertyInspectorTest extends TestCase
 
     // ── inspect: exception wrapping ──────────────────────────────────
 
+    #[Group('fail-closed')]
     public function testInspectWrapsRuntimeExceptionIntoPropertyInspectionException(): void
     {
-        $analyzer = $this->createMock(AttributeAnalyzerContract::class);
+        $analyzer = self::createStub(AttributeAnalyzerContract::class);
         $analyzer->method('analyzeObject')
             ->willThrowException(new \RuntimeException('test error'));
 
@@ -113,13 +116,15 @@ final class PropertyInspectorTest extends TestCase
 
         $this->expectException(PropertyInspectionException::class);
         $this->expectExceptionMessage('test error');
+        $this->expectExceptionCode(2504);
 
         $inspector->inspect(new UserFixture(), $handler);
     }
 
+    #[Group('fail-closed')]
     public function testInspectWrapsReflectionExceptionIntoPropertyInspectionException(): void
     {
-        $analyzer = $this->createMock(AttributeAnalyzerContract::class);
+        $analyzer = self::createStub(AttributeAnalyzerContract::class);
         $analyzer->method('analyzeObject')
             ->willThrowException(new \ReflectionException('reflection failure'));
 
@@ -128,13 +133,15 @@ final class PropertyInspectorTest extends TestCase
 
         $this->expectException(PropertyInspectionException::class);
         $this->expectExceptionMessage('reflection failure');
+        $this->expectExceptionCode(2502);
 
         $inspector->inspect(new UserFixture(), $handler);
     }
 
+    #[Group('fail-closed')]
     public function testInspectWrapsErrorIntoPropertyInspectionException(): void
     {
-        $analyzer = $this->createMock(AttributeAnalyzerContract::class);
+        $analyzer = self::createStub(AttributeAnalyzerContract::class);
         $analyzer->method('analyzeObject')
             ->willThrowException(new \Error('fatal error'));
 
@@ -143,6 +150,7 @@ final class PropertyInspectorTest extends TestCase
 
         $this->expectException(PropertyInspectionException::class);
         $this->expectExceptionMessage('fatal error');
+        $this->expectExceptionCode(2505);
 
         $inspector->inspect(new UserFixture(), $handler);
     }
@@ -162,5 +170,58 @@ final class PropertyInspectorTest extends TestCase
         self::assertArrayHasKey('name', $processed);
         self::assertArrayHasKey('email', $processed);
         self::assertArrayHasKey('age', $processed);
+    }
+
+    #[Group('fail-closed')]
+    public function testInspectPropagatesAnalyzerExceptionWithoutDoubleWrapping(): void
+    {
+        // The analyzer contract already throws PropertyInspectionException.
+        // inspect() must re-throw that same instance, keeping its code (ADR-004).
+        $original = PropertyInspectionException::failedToAnalyzeObjectError(new \Error('boom'));
+
+        $analyzer = self::createStub(AttributeAnalyzerContract::class);
+        $analyzer->method('analyzeObject')->willThrowException($original);
+
+        $inspector = new PropertyInspector($analyzer);
+
+        try {
+            $inspector->inspect(new UserFixture(), new SpyAttributeHandler());
+            self::fail('Expected PropertyInspectionException was not thrown');
+        } catch (PropertyInspectionException $caught) {
+            self::assertSame($original, $caught);
+            self::assertSame(2503, $caught->getCode());
+        }
+    }
+
+    // ── inspect: handler failures ────────────────────────────────────
+
+    #[Group('fail-closed')]
+    public function testInspectWrapsHandlerExceptionAsCode2504(): void
+    {
+        $inspector = new PropertyInspector(new AttributeAnalyzer(Validate::class));
+        $cause = new \DomainException('handler rejected value');
+
+        try {
+            $inspector->inspect(new UserFixture(), new FailingAttributeHandler($cause));
+            self::fail('Expected PropertyInspectionException was not thrown');
+        } catch (PropertyInspectionException $e) {
+            self::assertSame(2504, $e->getCode());
+            self::assertSame($cause, $e->getPrevious());
+        }
+    }
+
+    #[Group('fail-closed')]
+    public function testInspectWrapsHandlerErrorAsCode2505(): void
+    {
+        $inspector = new PropertyInspector(new AttributeAnalyzer(Validate::class));
+        $cause = new \TypeError('handler type failure');
+
+        try {
+            $inspector->inspect(new UserFixture(), new FailingAttributeHandler($cause));
+            self::fail('Expected PropertyInspectionException was not thrown');
+        } catch (PropertyInspectionException $e) {
+            self::assertSame(2505, $e->getCode());
+            self::assertSame($cause, $e->getPrevious());
+        }
     }
 }

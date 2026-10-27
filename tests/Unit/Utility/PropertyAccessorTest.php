@@ -4,7 +4,10 @@ declare(strict_types=1);
 
 namespace KaririCode\PropertyInspector\Tests\Unit\Utility;
 
+use KaririCode\PropertyInspector\Tests\Fixture\AsymmetricEntityFixture;
+use KaririCode\PropertyInspector\Tests\Fixture\HookedPropertyFixture;
 use KaririCode\PropertyInspector\Tests\Fixture\PrivatePropertiesFixture;
+use KaririCode\PropertyInspector\Tests\Fixture\ReadonlyDpoFixture;
 use KaririCode\PropertyInspector\Tests\Fixture\UserFixture;
 use KaririCode\PropertyInspector\Utility\PropertyAccessor;
 use PHPUnit\Framework\Attributes\CoversClass;
@@ -91,5 +94,51 @@ final class PropertyAccessorTest extends TestCase
         $result = $accessor->getValue();
 
         self::assertSame(42, $result);
+    }
+
+    // ── PHP 8.4 property model ──────────────────────────────────────
+
+    public function testSetValueWritesAsymmetricVisibilityProperty(): void
+    {
+        // Entities use `public private(set)`; reflection writes bypass set-visibility.
+        $entity = new AsymmetricEntityFixture();
+        $accessor = new PropertyAccessor($entity, 'status');
+
+        $accessor->setValue('confirmed');
+
+        self::assertSame('confirmed', $entity->status);
+    }
+
+    public function testSetValueRunsPropertySetHook(): void
+    {
+        $entity = new HookedPropertyFixture();
+        $accessor = new PropertyAccessor($entity, 'name');
+
+        $accessor->setValue('updated');
+
+        self::assertSame('updated', $entity->name);
+    }
+
+    public function testSetValuePropagatesSetHookValidationFailure(): void
+    {
+        // Hook validation stays enforced on reflection writes.
+        $accessor = new PropertyAccessor(new HookedPropertyFixture(), 'name');
+
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('name must not be empty');
+
+        $accessor->setValue('');
+    }
+
+    public function testSetValueOnInitializedReadonlyPropertyThrowsError(): void
+    {
+        // Characterizes the ARFA P1 limitation recorded in ADR-006: readonly
+        // DPOs cannot be updated in place.
+        $accessor = new PropertyAccessor(new ReadonlyDpoFixture('A@B.C'), 'email');
+
+        $this->expectException(\Error::class);
+        $this->expectExceptionMessage('Cannot modify readonly property');
+
+        $accessor->setValue('a@b.c');
     }
 }

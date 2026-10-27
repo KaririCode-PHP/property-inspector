@@ -9,6 +9,5 @@ final class NoAttributeFixture
     public function __construct(
         public string $name = 'plain',
         public int $count = 0,
-    ) {
-    }
+    ) {}
 }

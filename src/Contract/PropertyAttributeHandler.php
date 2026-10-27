@@ -4,6 +4,21 @@ declare(strict_types=1);
 
 namespace KaririCode\PropertyInspector\Contract;
 
+/**
+ * Processor-side extension point: receives each (property, attribute, value)
+ * triple found during inspection, applies the processor's semantics, and
+ * accumulates processed values, messages and errors keyed by property name.
+ *
+ * Attribute instances passed to handleAttribute() may be shared across
+ * inspections of the same class (analyzer cache) and must not be mutated.
+ *
+ * Thread-safety: handlers accumulate per-inspection state; use one handler
+ * instance per inspected object.
+ *
+ * @see \KaririCode\PropertyInspector\Utility\PropertyInspector Caller of handleAttribute()
+ * @see docs/spec/SPEC-001-property-inspection-pipeline.md
+ * @since 1.0.0
+ */
 interface PropertyAttributeHandler
 {
     /**
