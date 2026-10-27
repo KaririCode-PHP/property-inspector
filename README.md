@@ -4,13 +4,13 @@
 
 [![PHP 8.4+](https://img.shields.io/badge/PHP-8.4%2B-777BB4?logo=php&logoColor=white)](https://www.php.net/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-22c55e.svg)](LICENSE)
-[![PHPStan Level 9](https://img.shields.io/badge/PHPStan-Level%209-4F46E5)](https://phpstan.org/)
-[![Tests](https://img.shields.io/badge/Tests-40%20passing-22c55e)](https://kariricode.org)
+[![PHPStan level max](https://img.shields.io/badge/PHPStan-level%20max-4F46E5)](https://phpstan.org/)
+[![Tests](https://img.shields.io/badge/Tests-67%20passing-22c55e)](docs/quality/QD-V433-COMPLIANCE.md)
 [![ARFA](https://img.shields.io/badge/ARFA-1.3-orange)](https://kariricode.org)
 [![KaririCode Framework](https://img.shields.io/badge/KaririCode-Framework-orange)](https://kariricode.org)
 
 **Attribute-based property analysis and inspection for the KaririCode Framework —  
-multi-pass pipelines, reflection caching, and zero-overhead property mutation, PHP 8.4+.**
+multi-pass pipelines, reflection caching and reflection-based property mutation, PHP 8.4+.**
 
 [Installation](#installation) · [Quick Start](#quick-start) · [Features](#features) · [Pipeline](#the-inspection-pipeline) · [Architecture](#architecture)
 
@@ -248,8 +248,11 @@ try {
     $inspector->inspect($user, $handler);
 } catch (PropertyInspectionException $e) {
     // ReflectionException, TypeError, Error — all caught and re-wrapped
+    // $e->getCode(): 2501–2506, see SPEC-001 §5
 }
 ```
+
+The message still includes the cause message; do not show it to end users (SECURITY.md).
 
 ---
 
@@ -301,30 +304,37 @@ src/
 | Decision | Rationale | ADR |
 |---|---|---|
 | Reflection cache per class | One `ReflectionClass` call per type, not per instance | — |
-| Remove `setAccessible` | Deprecated in PHP 8.1, removed in PHP 9; `PropertyAccessor` handles this | [ADR-001](docs/ADR-001-remove-setaccessible-dead-code.md) |
-| `clearCache()` on interface | Enables test isolation and dynamic class reloading | [ADR-002](docs/ADR-002-add-clearcache-to-interface.md) |
-| Wrapped exception hierarchy | Callers catch `PropertyInspectionException`, not reflection internals | [ADR-003](docs/ADR-003-correct-throws-annotation.md) |
+| Remove `setAccessible` | No-op since PHP 8.1 | [ADR-001](docs/adr/ADR-001-remove-setaccessible-dead-code.md) |
+| `clearCache()` on interface | Callers typed against the contract can bound the cache | [ADR-002](docs/adr/ADR-002-add-clearcache-to-interface.md) |
+| Wrapped exception hierarchy | Callers catch `PropertyInspectionException`, not reflection internals | [ADR-003](docs/adr/ADR-003-correct-throws-annotation.md) |
+| No double-wrapping | Analyzer codes reach the caller intact | [ADR-004](docs/adr/ADR-004-prevent-exception-double-wrapping.md) |
+| Code 2506 | Attribute-constructor failures are wrapped too | [ADR-005](docs/adr/ADR-005-symmetric-analysis-exception-handling.md) |
+| Copy-on-write applier (proposed) | Readonly DPOs cannot be written in place | [ADR-006](docs/adr/ADR-006-immutable-change-application.md) |
+| Toolchain in the repository | The Specification prevails over the Devkit | [ADR-007](docs/adr/ADR-007-quality-toolchain-and-supply-chain.md) |
+| `object` parameters | The domain is any object | [ADR-008](docs/adr/ADR-008-object-typed-inspection-api.md) |
+| 3.0 alignment (proposed) | Contract exception family, §18 API, §31 coupling | [ADR-009](docs/adr/ADR-009-ecosystem-contract-alignment-3-0.md) |
 | Handler-returned values | Handler decides the processed value — supports chaining and transformation | — |
 
 ### Specifications
 
 | Spec | Covers |
 |---|---|
-| [SPEC-001](docs/SPEC-001-property-inspection-pipeline.md) | Full pipeline: analysis → handler → mutation |
+| [SPEC-001](docs/spec/SPEC-001-property-inspection-pipeline.md) | Pipeline, contracts, invariants, error codes |
+
+Index of all documents: [docs/README.md](docs/README.md).
 
 ---
 
 ## Integration with the KaririCode Ecosystem
 
-PropertyInspector is the **reflection engine** used internally by other KaririCode components:
+Published dependents on Packagist (checked 2026-10-02):
 
-| Component | Role |
+| Package | Requires |
 |---|---|
-| `kariricode/validator` | Uses `PropertyInspector` to discover `#[Rule]` attributes and dispatch to rule processors |
-| `kariricode/sanitizer` | Uses `PropertyInspector` to discover `#[Sanitize]` attributes and apply transformers |
-| `kariricode/normalizer` | Uses `PropertyInspector` for attribute-driven normalization passes |
+| `kariricode/sanitizer` 1.2.3 | `^2.0` |
+| `kariricode/validator` 1.0.0 | `^1.0` |
 
-Any component that needs **declarative, attribute-based property processing** can be built on top of this pipeline.
+Spec V4.3.3 §31 routes coupling between components through `kariricode/contract`. The move of these contracts there is planned in [ADR-009](docs/adr/ADR-009-ecosystem-contract-alignment-3-0.md).
 
 ---
 
@@ -332,14 +342,15 @@ Any component that needs **declarative, attribute-based property processing** ca
 
 | Metric | Value |
 |---|---|
-| PHP source files | 7 |
-| External runtime dependencies | 2 (contract · exception) |
-| Test suite | 40 tests · 96 assertions |
-| PHPStan level | 9 |
-| PHP version | 8.4+ |
-| ARFA compliance | 1.3 |
-| Test suites | Unit + Integration |
-| Reflection cache | Per-class, per-`AttributeAnalyzer` instance |
+| PHP source files | 8 (531 lines) |
+| Runtime dependencies | 2 (contract · exception) |
+| Tests | 67 (unit 47 · integration 5 · conformance 15) |
+| Line coverage | 100% (pcov) |
+| Mutation score | MSI 100% (36 of 36 killed) |
+| PHPStan / Psalm | level max / errorLevel 1, no baseline |
+| Spec / ARFA / ASVS | V4.3.3 / 1.3 Level 1 / 5.0 Level 1 |
+
+Measured locally on 2026-10-27; details in [QD-V433](docs/quality/QD-V433-COMPLIANCE.md).
 
 ---
 
@@ -349,9 +360,11 @@ Any component that needs **declarative, attribute-based property processing** ca
 git clone https://github.com/KaririCode-Framework/kariricode-property-inspector.git
 cd kariricode-property-inspector
 composer install
-kcode init
-kcode quality  # Must pass before opening a PR
+composer quality     # must pass before opening a PR
+composer infection   # MSI >= 80% (needs pcov or Xdebug)
 ```
+
+Rules and conventions: [CONTRIBUTING.md](CONTRIBUTING.md). Security: [SECURITY.md](SECURITY.md). Changes: [CHANGELOG.md](CHANGELOG.md).
 
 ---
 

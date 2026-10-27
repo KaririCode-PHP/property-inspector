@@ -19,6 +19,5 @@ final class UserFixture
         #[Validate(processors: ['required', 'integer', 'min:18'])]
         public int $age = 0,
         public string $noAttribute = 'ignored',
-    ) {
-    }
+    ) {}
 }

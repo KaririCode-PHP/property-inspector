@@ -12,6 +12,5 @@ final class Validate
     /** @param list<string> $processors */
     public function __construct(
         public readonly array $processors = [],
-    ) {
-    }
+    ) {}
 }
