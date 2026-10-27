@@ -64,7 +64,6 @@ tests/lista_de_arquivos_test.php
 lista_de_arquivos.txt
 lista_de_arquivos_tests.txt
 add_static_to_providers.php
-/composer.lock
 
 # DevKit (kcode.phar)
 /.kcode/

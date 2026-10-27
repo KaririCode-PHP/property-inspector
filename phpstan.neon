@@ -1,0 +1,10 @@
+# Spec V4.3.3 §29.1: level max, zero errors, no baseline (ADR-007).
+parameters:
+    level: max
+    paths:
+        - src
+        - tools
+    tmpDir: build/.phpstan
+    checkMissingCallableSignature: true
+    treatPhpDocTypesAsCertain: false
+    reportUnmatchedIgnoredErrors: true
