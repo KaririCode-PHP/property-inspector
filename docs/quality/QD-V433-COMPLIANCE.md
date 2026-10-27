@@ -4,12 +4,12 @@
 |---|---|
 | Component | `kariricode/property-inspector` 2.1.0 (unreleased) |
 | Specification | KaririCode Specification V4.3.3 · ARFA 1.3 Level 1 · OWASP ASVS 5.0 Level 1 |
-| Date | 2026-10-02 |
-| Status | **PENDING** — local gates green; release items in §4 are open |
+| Date | 2026-10-27 |
+| Status | **PENDING** — local gates green on 2026-10-27; release items in §4 are open |
 
 ## 1. Automated gates (§29.1)
 
-Measured locally, not in CI. The runtime was PHP 8.4.26 with pcov 1.0.12, with the toolchain installed from `composer.lock`.
+Measured locally on 2026-10-27, not in CI. The runtime was PHP 8.4.27 with pcov 1.0.12, with the toolchain installed from `composer.lock`. The sandbox could not reach GitHub's archive endpoint, so the dependency archives were built with `git archive` from the commits pinned in the lock.
 
 | Gate | Command | Result |
 |---|---|---|
@@ -58,6 +58,6 @@ Measured locally, not in CI. The runtime was PHP 8.4.26 with pcov 1.0.12, with t
 ## 4. Open release items
 
 1. Register `PI-2500–2599` in the ecosystem error-code registry.
-2. First green CI run on GitHub.
+2. Green `ci.yml` runs on `develop` and `main`. `release.yml` re-runs every gate before it publishes the GitHub release.
 3. Signed tag: `git tag -s v2.1.0`.
 4. kariricode/contract 2.11.0 on Packagist. This blocks 3.0, not 2.1.0.

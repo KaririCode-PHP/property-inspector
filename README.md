@@ -350,7 +350,7 @@ Spec V4.3.3 §31 routes coupling between components through `kariricode/contract
 | PHPStan / Psalm | level max / errorLevel 1, no baseline |
 | Spec / ARFA / ASVS | V4.3.3 / 1.3 Level 1 / 5.0 Level 1 |
 
-Measured locally on 2026-10-02; details in [QD-V433](docs/quality/QD-V433-COMPLIANCE.md).
+Measured locally on 2026-10-27; details in [QD-V433](docs/quality/QD-V433-COMPLIANCE.md).
 
 ---
 

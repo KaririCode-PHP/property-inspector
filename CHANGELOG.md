@@ -2,7 +2,7 @@
 
 All notable changes to this project are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses [Semantic Versioning](https://semver.org/).
 
-## [2.1.0] — Unreleased
+## [2.1.0] — 2026-10-27
 
 ### Fixed
 
@@ -55,3 +55,6 @@ All notable changes to this project are documented here. The format follows [Kee
 ### Removed
 
 - Dead `setAccessible()` calls (ADR-001).
+
+[2.1.0]: https://github.com/KaririCode-Framework/kariricode-property-inspector/compare/v2.0.0...v2.1.0
+[2.0.0]: https://github.com/KaririCode-Framework/kariricode-property-inspector/compare/v1.2.3...v2.0.0
