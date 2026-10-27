@@ -6,11 +6,9 @@ namespace KaririCode\PropertyInspector\Tests\Fixture\Attribute;
 
 use Attribute;
 
-#[Attribute(Attribute::TARGET_PROPERTY)]
-final class Validate
+/** A repeatable validation rule. Example: `#[Validate('email')]` */
+#[Attribute(Attribute::TARGET_PROPERTY | Attribute::IS_REPEATABLE)]
+final readonly class Validate implements Rule
 {
-    /** @param list<string> $processors */
-    public function __construct(
-        public readonly array $processors = [],
-    ) {}
+    public function __construct(public string $rule) {}
 }

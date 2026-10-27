@@ -4,108 +4,42 @@ declare(strict_types=1);
 
 namespace KaririCode\PropertyInspector\Exception;
 
-use KaririCode\Exception\AbstractException;
+use KaririCode\Contract\Exception\Runtime;
 
 /**
- * Single failure type of the component: signals that an object could not be
- * analyzed (reflection metadata, attribute instantiation, value reading) or
- * inspected (handler dispatch). Callers catch one type and branch on the
- * stable numeric code; the original throwable is always kept as previous.
+ * Marks every failure this package raises itself, so a caller can catch the
+ * package's own faults in one place, the Runtime family of the ecosystem, or
+ * the ecosystem root (`Contract\Exception\ExceptionInterface`). Each failure
+ * carries a stable code in the range PI-2500–2599 and a message that starts
+ * with `[PI_<code>]`.
  *
- * Codes (component range 2501-2599):
+ * | Code | Raised by                    | Cause                                          |
+ * |------|------------------------------|------------------------------------------------|
+ * | 2503 | InspectionFailedException    | an attribute cannot be instantiated (\Error)    |
+ * | 2506 | InspectionFailedException    | an attribute constructor threw an \Exception   |
+ * | 2507 | InspectionFailedException    | an annotated property is not initialized       |
+ * | 2520 | ChangeRejectedException      | no writable property has that name             |
+ * | 2521 | ChangeRejectedException      | the named property is static                   |
+ * | 2522 | ChangeRejectedException      | the property rejects the value (\Error)        |
+ * | 2523 | ChangeRejectedException      | the object's class cannot be copied            |
  *
- * | Code | Phase      | Cause                                           |
- * |------|------------|-------------------------------------------------|
- * | 2501 | analysis   | \ReflectionException                            |
- * | 2502 | inspection | \ReflectionException                            |
- * | 2503 | analysis   | \Error (e.g. uninitialized typed property)      |
- * | 2504 | inspection | \Exception thrown by the handler                |
- * | 2505 | inspection | \Error thrown by the handler                    |
- * | 2506 | analysis   | \Exception (e.g. attribute constructor throws)  |
+ * Exceptions thrown by a handler, or by the object's own property hooks, are
+ * not wrapped: they reach the caller unchanged and keep their family
+ * (ADR-010).
+ *
+ * Thread-safety: an exception is immutable once created.
  *
  * Example:
  *
  *     try {
- *         $inspector->inspect($dpo, $handler);
- *     } catch (PropertyInspectionException $e) {
- *         $logger->error($e->getMessage(), ['code' => $e->getCode()]);
+ *         $inspector->inspect($signUp, Sanitize::class, $rules);
+ *     } catch (PropertyInspectionException $fault) {
+ *         $logger->error($fault->getMessage(), ['code' => $fault->getCode()]);
  *     }
  *
- * Side effects: none; a factory only captures the cause as previous.
+ * @see https://github.com/KaririCode-PHP/property-inspector/blob/main/docs/adr/ADR-011-exception-model-3-0.md
+ * @see \KaririCode\Contract\Exception\Runtime
  *
- * Thread-safety: immutable once created; holds no shared state.
- *
- * @see docs/SPEC-001-property-inspection-pipeline.md
- * @see docs/ADR-005-symmetric-analysis-exception-handling.md
- * @since 1.0.0
+ * @since 3.0.0
  */
-final class PropertyInspectionException extends AbstractException
-{
-    private const int CODE_REFLECTION_ANALYSIS_ERROR = 2501;
-    private const int CODE_REFLECTION_INSPECTION_ERROR = 2502;
-    private const int CODE_GENERAL_ANALYSIS_ERROR = 2503;
-    private const int CODE_GENERAL_INSPECTION_ERROR = 2504;
-    private const int CODE_CRITICAL_INSPECTION_ERROR = 2505;
-    private const int CODE_GENERAL_ANALYSIS_EXCEPTION = 2506;
-
-    public static function failedToAnalyzeObjectReflection(\ReflectionException $e): self
-    {
-        return self::createException(
-            self::CODE_REFLECTION_ANALYSIS_ERROR,
-            'REFLECTION_ANALYSIS_ERROR',
-            "Failed to analyze object using reflection: {$e->getMessage()}",
-            $e,
-        );
-    }
-
-    /** @since 2.1.0 */
-    public static function failedToAnalyzeObjectException(\Exception $e): self
-    {
-        return self::createException(
-            self::CODE_GENERAL_ANALYSIS_EXCEPTION,
-            'GENERAL_ANALYSIS_EXCEPTION',
-            "An exception occurred during object analysis: {$e->getMessage()}",
-            $e,
-        );
-    }
-
-    public static function failedToAnalyzeObjectError(\Error $e): self
-    {
-        return self::createException(
-            self::CODE_GENERAL_ANALYSIS_ERROR,
-            'GENERAL_ANALYSIS_ERROR',
-            "An error occurred during object analysis: {$e->getMessage()}",
-            $e,
-        );
-    }
-
-    public static function failedToInspectObjectReflection(\ReflectionException $e): self
-    {
-        return self::createException(
-            self::CODE_REFLECTION_INSPECTION_ERROR,
-            'REFLECTION_INSPECTION_ERROR',
-            "Failed to inspect object using reflection: {$e->getMessage()}",
-            $e,
-        );
-    }
-
-    public static function failedToInspectObjectException(\Exception $e): self
-    {
-        return self::createException(
-            self::CODE_GENERAL_INSPECTION_ERROR,
-            'GENERAL_INSPECTION_ERROR',
-            "An exception occurred during object inspection: {$e->getMessage()}",
-            $e,
-        );
-    }
-
-    public static function failedToInspectObjectError(\Error $e): self
-    {
-        return self::createException(
-            self::CODE_CRITICAL_INSPECTION_ERROR,
-            'CRITICAL_INSPECTION_ERROR',
-            "A critical error occurred during object inspection: {$e->getMessage()}",
-            $e,
-        );
-    }
-}
+interface PropertyInspectionException extends Runtime {}

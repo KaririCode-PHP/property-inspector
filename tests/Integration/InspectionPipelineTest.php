@@ -4,145 +4,100 @@ declare(strict_types=1);
 
 namespace KaririCode\PropertyInspector\Tests\Integration;
 
-use KaririCode\PropertyInspector\AttributeAnalyzer;
+use KaririCode\Contract\Inspection\PropertyChangeApplier;
+use KaririCode\Contract\Inspection\PropertyInspector;
+use KaririCode\PropertyInspector\Core\ReflectionChangeApplier;
+use KaririCode\PropertyInspector\Core\ReflectionPropertyInspector;
 use KaririCode\PropertyInspector\Tests\Fixture\Attribute\Sanitize;
 use KaririCode\PropertyInspector\Tests\Fixture\Attribute\Validate;
-use KaririCode\PropertyInspector\Tests\Fixture\ReflectionChangeApplier;
-use KaririCode\PropertyInspector\Tests\Fixture\SimpleValidationHandler;
-use KaririCode\PropertyInspector\Tests\Fixture\TrimLowercaseHandler;
-use KaririCode\PropertyInspector\Tests\Fixture\UserFixture;
-use KaririCode\PropertyInspector\Utility\PropertyAccessor;
-use KaririCode\PropertyInspector\Utility\PropertyInspector;
-use PHPUnit\Framework\Attributes\CoversClass;
+use KaririCode\PropertyInspector\Tests\Fixture\EmailRules;
+use KaririCode\PropertyInspector\Tests\Fixture\RuleCollector;
+use KaririCode\PropertyInspector\Tests\Fixture\SignUp;
+use PHPUnit\Framework\Attributes\CoversNothing;
+use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\TestCase;
 
 /**
- * Integration tests exercising the full inspection pipeline:
- * AttributeAnalyzer → PropertyInspector → Handler → PropertyAccessor.
- *
- * These tests verify cross-component behavior that unit tests cannot cover,
- * including multi-pass inspection, handler state accumulation,
- * and round-trip property mutation via PropertyAccessor.
+ * The flow a processor runs through the contracts only: inspect the DPO,
+ * process what the handler collected, write the result back to a copy, then
+ * validate the copy. Both implementations are typed as the contracts.
  */
-#[CoversClass(AttributeAnalyzer::class)]
-#[CoversClass(PropertyInspector::class)]
-#[CoversClass(PropertyAccessor::class)]
+#[CoversNothing]
 final class InspectionPipelineTest extends TestCase
 {
-    // ── Full pipeline: inspect → collect → apply ─────────────────────
+    private PropertyInspector $inspector;
 
-    public function testFullPipelineInspectCollectAndApplyChanges(): void
+    private PropertyChangeApplier $applier;
+
+    #[\Override]
+    protected function setUp(): void
     {
-        $user = new UserFixture(name: '  Walmir  ', email: '  W@TEST.COM  ', age: 30);
-
-        // Pass 1: Sanitize (trim + lowercase)
-        $sanitizeAnalyzer = new AttributeAnalyzer(Sanitize::class);
-        $sanitizeInspector = new PropertyInspector($sanitizeAnalyzer);
-        $sanitizeHandler = new TrimLowercaseHandler();
-
-        $sanitizeInspector->inspect($user, $sanitizeHandler);
-
-        // Apply sanitized values back to the object
-        $applier = new ReflectionChangeApplier($sanitizeHandler->getProcessedPropertyValues());
-        $applier->applyChanges($user);
-
-        self::assertSame('Walmir', $user->name);
-        self::assertSame('w@test.com', $user->email);
-
-        // Pass 2: Validate (on sanitized data)
-        $validateAnalyzer = new AttributeAnalyzer(Validate::class);
-        $validateInspector = new PropertyInspector($validateAnalyzer);
-        $validateHandler = new SimpleValidationHandler();
-
-        $validateInspector->inspect($user, $validateHandler);
-
-        self::assertSame([], $validateHandler->getProcessingResultErrors());
+        $this->inspector = new ReflectionPropertyInspector();
+        $this->applier = new ReflectionChangeApplier();
     }
 
-    // ── Multi-pass: same analyzer, different objects ──────────────────
-
-    public function testMultiPassInspectionSharesCachedMetadata(): void
+    #[Test]
+    public function aReadonlyDpoIsSanitizedByInspectingThenApplyingACopy(): void
     {
-        $analyzer = new AttributeAnalyzer(Validate::class);
-        $inspector = new PropertyInspector($analyzer);
+        $signUp = new SignUp(email: ' A@B.org ', name: ' Walmir ', age: 30);
 
-        $users = [
-            new UserFixture(name: 'Alice', email: 'alice@test.com', age: 25),
-            new UserFixture(name: 'Bob', email: 'bob@test.com', age: 35),
-            new UserFixture(name: 'Charlie', email: 'charlie@test.com', age: 45),
-        ];
+        $clean = $this->sanitize($signUp);
 
-        $allProcessed = [];
-        foreach ($users as $user) {
-            $handler = new SimpleValidationHandler();
-            $inspector->inspect($user, $handler);
-            $allProcessed[] = $handler->getProcessedPropertyValues();
+        self::assertSame(['a@b.org', 'Walmir', 'acme', 30], [$clean->email, $clean->name(), $clean->tenant(), $clean->age]);
+        self::assertSame(' A@B.org ', $signUp->email, 'the original is untouched');
+    }
+
+    #[Test]
+    public function theCopyIsValidatedNotTheOriginal(): void
+    {
+        $signUp = new SignUp(email: ' A@B.org ', name: 'Walmir', age: 30);
+
+        $this->inspector->inspect($signUp, Validate::class, $before = new EmailRules());
+        $this->inspector->inspect($this->sanitize($signUp), Validate::class, $after = new EmailRules());
+
+        self::assertSame(['email' => 'not an e-mail address'], $before->errors, 'padding makes the raw value invalid');
+        self::assertSame([], $after->errors, 'sanitize, then validate');
+    }
+
+    #[Test]
+    public function oneInspectorServesEveryAttributeClassAndEveryObject(): void
+    {
+        $first = new SignUp(email: 'x@y.org', name: 'A', age: 1);
+        $second = new SignUp(email: 'z@w.org', name: 'B', age: 2);
+
+        $this->inspector->inspect($first, Sanitize::class, $a = new RuleCollector());
+        $this->inspector->inspect($second, Sanitize::class, $b = new RuleCollector());
+        $this->inspector->inspect($second, Validate::class, $c = new RuleCollector());
+
+        self::assertSame(['x@y.org', 'z@w.org'], [$a->values['email'], $b->values['email']]);
+        self::assertSame(['email' => ['email']], $c->rules);
+    }
+
+    private function sanitize(SignUp $signUp): SignUp
+    {
+        $this->inspector->inspect($signUp, Sanitize::class, $rules = new RuleCollector());
+
+        $changes = [];
+        foreach ($rules->rules as $property => $list) {
+            $changes[$property] = self::apply($rules->values[$property], $list);
         }
 
-        self::assertCount(3, $allProcessed);
-        self::assertSame('Alice', $allProcessed[0]['name']);
-        self::assertSame('Bob', $allProcessed[1]['name']);
-        self::assertSame('Charlie', $allProcessed[2]['name']);
+        return $this->applier->applyChanges($signUp, $changes);
     }
 
-    // ── PropertyAccessor round-trip integration ──────────────────────
-
-    public function testPropertyAccessorRoundTripWithInspection(): void
+    /**
+     * @param list<string> $rules
+     */
+    private static function apply(mixed $value, array $rules): mixed
     {
-        $user = new UserFixture(name: 'Original', email: 'orig@test.com', age: 20);
-
-        // Inspect to get attribute data
-        $analyzer = new AttributeAnalyzer(Validate::class);
-        $inspector = new PropertyInspector($analyzer);
-        $handler = new SimpleValidationHandler();
-        $inspector->inspect($user, $handler);
-
-        // Mutate via PropertyAccessor
-        $accessor = new PropertyAccessor($user, 'name');
-        $accessor->setValue('Modified');
-
-        // Re-inspect — should see the updated value
-        $handler2 = new SimpleValidationHandler();
-        $inspector->inspect($user, $handler2);
-
-        self::assertSame('Modified', $handler2->getProcessedPropertyValues()['name']);
-    }
-
-    // ── ClearCache forces re-analysis ────────────────────────────────
-
-    public function testClearCacheForcesReAnalysisOnNextInspection(): void
-    {
-        $analyzer = new AttributeAnalyzer(Validate::class);
-        $inspector = new PropertyInspector($analyzer);
-
-        $user = new UserFixture(name: 'Before', email: 'b@test.com', age: 30);
-        $handler1 = new SimpleValidationHandler();
-        $inspector->inspect($user, $handler1);
-
-        $analyzer->clearCache();
-
-        $user->name = 'After';
-        $handler2 = new SimpleValidationHandler();
-        $inspector->inspect($user, $handler2);
-
-        self::assertSame('After', $handler2->getProcessedPropertyValues()['name']);
-    }
-
-    // ── Error accumulation across properties ─────────────────────────
-
-    public function testValidationErrorsAccumulateAcrossProperties(): void
-    {
-        $user = new UserFixture(name: '', email: 'not-an-email', age: 10);
-
-        $analyzer = new AttributeAnalyzer(Validate::class);
-        $inspector = new PropertyInspector($analyzer);
-        $handler = new SimpleValidationHandler();
-
-        $inspector->inspect($user, $handler);
-
-        $errors = $handler->getProcessingResultErrors();
-        self::assertArrayHasKey('name', $errors);
-        self::assertArrayHasKey('email', $errors);
-        self::assertArrayHasKey('age', $errors);
+        return array_reduce(
+            $rules,
+            static fn(mixed $carry, string $rule): mixed => match (true) {
+                'trim' === $rule && \is_string($carry) => trim($carry),
+                'lowercase' === $rule && \is_string($carry) => strtolower($carry),
+                default => $carry,
+            },
+            $value,
+        );
     }
 }

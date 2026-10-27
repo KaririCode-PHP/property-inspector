@@ -64,7 +64,7 @@ final class SourceTree
         $files = array_merge(
             glob($root . '/docs/*.md') ?: [],
             glob($root . '/docs/*/*.md') ?: [],
-            [$root . '/README.md', $root . '/CHANGELOG.md', $root . '/SECURITY.md', $root . '/CONTRIBUTING.md'],
+            [$root . '/README.md', $root . '/CHANGELOG.md', $root . '/SECURITY.md', $root . '/CONTRIBUTING.md', $root . '/UPGRADE-3.0.md'],
         );
 
         return array_values(array_filter($files, 'is_file'));
