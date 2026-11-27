@@ -3,13 +3,20 @@
 ## Gates
 
 ```bash
-composer install            # from composer.lock
+composer install            # from composer.lock: kariricode/contract only
+kcode init                  # install the toolchain pinned in devkit.php into .kcode/
 composer quality            # cs-check, phpstan (max), psalm (1), complexity, tests, conformance, security
 composer infection          # mutation testing, MSI >= 80% (needs pcov or Xdebug)
 composer sbom               # CycloneDX 1.5 SBOM into build/
 ```
 
-The tooling lives in this repository (ADR-007); it does not depend on the KaririCode Devkit.
+[KaririCode Devkit](https://github.com/KaririCode-PHP/devkit) (`kcode`) installs the tools and runs this repository's configs (ADR-013). Install it once (PHP 8.4+):
+
+```bash
+wget https://github.com/KaririCode-PHP/devkit/releases/latest/download/kcode.phar
+chmod +x kcode.phar
+sudo mv kcode.phar /usr/local/bin/kcode
+```
 
 ## Code rules (KaririCode Spec V4.3.3)
 
@@ -37,4 +44,4 @@ The tooling lives in this repository (ADR-007); it does not depend on the Kariri
 
 - **ADRs** go in `docs/adr/` using the sections Context, Decision, Alternatives Considered, Consequences, ARFA 1.3 and References.
 - **Commits** follow Conventional Commits.
-- **Releases** follow Semantic Versioning, and tags are signed (`git tag -s`).
+- **Releases** follow Semantic Versioning. Tags should be signed (`git tag -s`); releases created from the GitHub UI are not, for now.

@@ -276,6 +276,7 @@ Measured locally on 2026-10-27 against kariricode/contract 2.12.0 built from its
 git clone https://github.com/KaririCode-PHP/property-inspector.git
 cd property-inspector
 composer install
+kcode init           # the toolchain pinned in devkit.php (KaririCode Devkit, ADR-013)
 composer quality     # must pass before opening a PR
 composer infection   # MSI >= 80% (needs pcov or Xdebug)
 ```

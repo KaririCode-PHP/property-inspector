@@ -2,7 +2,7 @@
 
 All notable changes to this project are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses [Semantic Versioning](https://semver.org/).
 
-## [3.0.0] — Unreleased
+## [3.0.0] — 2026-11-27
 
 Implements the property inspection contracts of kariricode/contract 2.12.0 and drops the package's own interfaces. Migration guide: [UPGRADE-3.0.md](UPGRADE-3.0.md).
 
@@ -25,6 +25,7 @@ Implements the property inspection contracts of kariricode/contract 2.12.0 and d
 - The analyzer caches per class and attribute class and returns Value Objects (`AnalyzedClass`, `AnalyzedProperty`). It is internal.
 - ADR-006 and ADR-009 are accepted and describe the implementation. ADR-002 and ADR-004 are superseded. ADR-005 and ADR-008 are amended. SPEC-001, README, QD-V433 and the threat model describe 3.0.
 - Repository URLs point to `KaririCode-PHP/property-inspector`.
+- The toolchain comes from KaririCode Devkit, pinned in `devkit.php`, and runs the root configs (ADR-013): `require-dev` is gone, `composer.lock` holds kariricode/contract 2.12.0 only, and `composer security` also audits the toolchain. CI installs kcode 1.2.1 by version and SHA-256. The gates and commands of ADR-007 are unchanged.
 
 ### Removed
 
