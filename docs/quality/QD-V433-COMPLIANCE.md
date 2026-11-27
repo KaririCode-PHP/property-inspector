@@ -2,62 +2,64 @@
 
 | Field | Value |
 |---|---|
-| Component | `kariricode/property-inspector` 2.1.0 (unreleased) |
+| Component | `kariricode/property-inspector` 3.0.0 (unreleased) |
 | Specification | KaririCode Specification V4.3.3 · ARFA 1.3 Level 1 · OWASP ASVS 5.0 Level 1 |
 | Date | 2026-10-27 |
-| Status | **PENDING** — local gates green on 2026-10-27; release items in §4 are open |
+| Status | **PENDING** — local gates green against kariricode/contract 2.12.0 built from its sources; release items in §4 are open |
 
 ## 1. Automated gates (§29.1)
 
-Measured locally on 2026-10-27, not in CI. The runtime was PHP 8.4.27 with pcov 1.0.12, with the toolchain installed from `composer.lock`. The sandbox could not reach GitHub's archive endpoint, so the dependency archives were built with `git archive` from the commits pinned in the lock.
+Measured locally on 2026-10-27, not in CI. The runtime was PHP 8.4.27 with pcov 1.0.12.
+
+kariricode/contract 2.12.0 is not on Packagist yet. The gates ran against a local build of it: the 2.11.0 commit on its `main` (`62dea5b`) plus the three `Inspection` interfaces of its 2.12.0 release commit. That build was installed through an untracked Composer path repository; every other package came from the versions locked in `composer.lock`.
 
 | Gate | Command | Result |
 |---|---|---|
-| Code style | `composer cs-check` | PER-CS 3.0; 0 of 39 files to fix |
+| Code style | `composer cs-check` | PER-CS 3.0; 0 of 41 files to fix |
 | Static analysis | `composer phpstan` | level max over `src` and `tools`; 0 errors, no baseline |
 | Type analysis | `composer psalm` | errorLevel 1; 0 errors, no baseline |
-| Complexity | `composer complexity` | 24 methods; 0 breaches (cyclomatic ≤ 10, cognitive ≤ 15, parameters ≤ 4) |
-| Tests | `composer test` | 52 tests, 123 assertions |
-| Conformance | `composer test-conformance` | 15 tests, 121 assertions |
-| Security | `composer security` | see below |
-| Coverage | `phpunit --coverage-text` (pcov) | classes 4/4, methods 16/16, lines 88/88 (100%) |
-| Mutation | `composer infection` | 36 mutants, 36 killed; MSI 100%, covered MSI 100% (minimum 80%) |
-| SBOM | `composer sbom` | CycloneDX 1.5: 2 runtime and 104 development components |
+| Complexity | `composer complexity` | 28 methods; 0 breaches (cyclomatic ≤ 10, cognitive ≤ 15, parameters ≤ 4) |
+| Tests | `composer test` | 60 tests, 141 assertions |
+| Conformance | `composer test-conformance` | 15 tests, 153 assertions |
+| Security | `composer security` | validate passes; audit finds no advisories; secret scan self-tests 6 rules, 0 findings; fail-closed group 12 tests |
+| Coverage | `phpunit --coverage-text` (pcov) | classes 7/7, methods 28/28, lines 109/109 (100%) |
+| Mutation | `composer infection` | 90 mutants, 90 killed; MSI 100%, covered MSI 100% (minimum 80%) |
+| SBOM | `composer sbom` | generated after `composer.lock` is regenerated (§4) |
 
-`composer security` covers four checks:
-- `validate --strict` passes;
-- `audit --locked` finds no advisories;
-- the secret scan self-tests 6 rules and reports 0 findings;
-- the fail-closed group passes its 9 tests.
+The mutation run first left 12 mutants alive (MSI 88%). They exposed untested cases and a needlessly complex slot key in the applier. Both were fixed by tests for shadowed private properties and copies of objects with static properties, and by a simpler implementation.
 
 ## 2. Production-readiness gates
 
 | Gate | Status |
 |---|---|
-| G1 automated checks | Pass locally; first CI run pending |
+| G1 automated checks | Pass locally; CI pending (§4) |
 | G2 documentation (§17) | Pass, enforced by `SpecConformanceTest::testTypeDocumentationMeetsTheCriteria` |
-| G3 no P0 in manual review | Pass for the 2.1.0 scope; design items open in ADR-006 and ADR-009 |
+| G3 no P0 in manual review | Pass |
 | G4 `arfa` and `asvs` declared | Pass (`extra.kariricode`) |
-| G5 antipatterns (§18) | Partial: exact deviation lists in the conformance suite |
-| G6 security gate (§24) | Partial: lock, audit, SBOM, secret scan, pinned CI and fail-closed suite pass; the ASVS requirement map is pending; signing happens at release |
+| G5 antipatterns (§18) | Pass; one accepted deviation (ADR-008) |
+| G6 security gate (§24) | Pass locally: audit, secret scan, fail-closed suite, E-047 messages. Open: ASVS requirement map, signed tag |
 
 ## 3. Deviations
 
-`SpecConformanceTest` enforces this list exactly. A deviation that disappears fails the suite until this list and the ADR are updated.
+`SpecConformanceTest` enforces this list exactly.
 
 | Rule | Deviation | Plan |
 |---|---|---|
-| §8.4 exception family | `PropertyInspectionException` implements no `Contract\Exception\*` family | 3.0, after kariricode/contract 2.11.0 is tagged (ADR-009) |
-| §31 coupling | runtime dependency on kariricode/exception | 3.0 (ADR-009) |
-| §18 getters, arrays, final | 4 getters, 5 array returns, `PropertyAccessor` not final | 3.0 (ADR-009) |
-| `object` parameters | 7 signatures | accepted (ADR-008) |
-| E-047 messages | messages repeat the cause message | 3.0; mitigation in SECURITY.md |
-| ARFA P1 | in-place change application | ADR-006 (proposed) |
-| ARFA P5 | no telemetry | decision pending (ADR-009) |
+| `object` parameters | `ReflectionPropertyInspector::inspect($object)`, `ReflectionChangeApplier::applyChanges($object)` | accepted (ADR-008) |
+| ARFA P5 | met by delegation, no telemetry of its own | ADR-012, proposed |
+
+The 2.x deviations are closed by ADR-009, ADR-010 and ADR-011:
+- the exception family;
+- the sibling dependency;
+- getters and array return values;
+- non-final classes;
+- E-047 messages;
+- in-place writes.
 
 ## 4. Open release items
 
-1. Register `PI-2500–2599` in the ecosystem error-code registry.
-2. Green `ci.yml` runs on `develop` and `main`. `release.yml` re-runs every gate before it publishes the GitHub release.
-3. Signed tag: `git tag -s v2.1.0`.
-4. kariricode/contract 2.11.0 on Packagist. This blocks 3.0, not 2.1.0.
+1. kariricode/contract 2.12.0 on Packagist.
+2. Regenerate `composer.lock`: `composer update kariricode/contract kariricode/exception`. Then rerun `composer quality`, `composer infection` and `composer sbom` from the lock.
+3. Green `ci.yml` runs on `develop` and `main`; `release.yml` reruns every gate before publishing.
+4. Register `PI-2500–2599` in the ecosystem error-code registry.
+5. Signed tag: `git tag -s v3.0.0`.

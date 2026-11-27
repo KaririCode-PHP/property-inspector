@@ -5,14 +5,14 @@
 [![PHP 8.4+](https://img.shields.io/badge/PHP-8.4%2B-777BB4?logo=php&logoColor=white)](https://www.php.net/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-22c55e.svg)](LICENSE)
 [![PHPStan level max](https://img.shields.io/badge/PHPStan-level%20max-4F46E5)](https://phpstan.org/)
-[![Tests](https://img.shields.io/badge/Tests-67%20passing-22c55e)](docs/quality/QD-V433-COMPLIANCE.md)
+[![Tests](https://img.shields.io/badge/Tests-75%20passing-22c55e)](docs/quality/QD-V433-COMPLIANCE.md)
 [![ARFA](https://img.shields.io/badge/ARFA-1.3-orange)](https://kariricode.org)
 [![KaririCode Framework](https://img.shields.io/badge/KaririCode-Framework-orange)](https://kariricode.org)
 
-**Attribute-based property analysis and inspection for the KaririCode Framework —  
-multi-pass pipelines, reflection caching and reflection-based property mutation, PHP 8.4+.**
+**Attribute-driven property inspection for the KaririCode Framework: one inspector for every processor,
+and copy-on-write change application that works on readonly DPOs. PHP 8.4+.**
 
-[Installation](#installation) · [Quick Start](#quick-start) · [Features](#features) · [Pipeline](#the-inspection-pipeline) · [Architecture](#architecture)
+[Installation](#installation) · [Quick Start](#quick-start) · [Features](#features) · [Pipeline](#the-inspection-pipeline) · [Architecture](#architecture) · [Migrating from 2.x](#migrating-from-2x)
 
 </div>
 
@@ -20,45 +20,41 @@ multi-pass pipelines, reflection caching and reflection-based property mutation,
 
 ## The Problem
 
-PHP reflection is boilerplate-heavy, error-prone, and slow when repeated across object graphs:
+Every processor that reads declarations from an object (a sanitizer, a validator, a transformer) ends up writing the same reflection loop, and none of them can write the result back to a readonly DPO:
 
 ```php
-// The old way: raw reflection on every request
-$ref = new ReflectionClass($user);
-foreach ($ref->getProperties() as $prop) {
-    $attrs = $prop->getAttributes(Validate::class);
-    foreach ($attrs as $attr) {
-        $prop->setAccessible(true); // deprecated in PHP 8.4
-        $value = $prop->getValue($user);
-        // now what? where does the result go? how do you write it back?
+foreach ((new ReflectionClass($dto))->getProperties() as $property) {
+    foreach ($property->getAttributes(Sanitize::class) as $attribute) {
+        $value = $property->getValue($dto);
+        // process it... then where does it go?
+        $property->setValue($dto, $clean);   // Error: Cannot modify readonly property
     }
 }
 ```
 
-No caching, no mutation abstraction, no error isolation, no handler contract — just raw loops you repeat in every project.
-
 ## The Solution
 
+The contracts live in `kariricode/contract`. This package implements them, and a processor depends on the contract only:
+
 ```php
-use KaririCode\PropertyInspector\AttributeAnalyzer;
-use KaririCode\PropertyInspector\Utility\PropertyInspector;
-use KaririCode\PropertyInspector\Utility\PropertyAccessor;
+use KaririCode\Contract\Inspection\PropertyChangeApplier;
+use KaririCode\Contract\Inspection\PropertyInspector;
 
-// 1. Configure which attribute to scan for
-$analyzer  = new AttributeAnalyzer(Validate::class);
-$inspector = new PropertyInspector($analyzer);
+final readonly class Sanitizer
+{
+    public function __construct(
+        private PropertyInspector $inspector,       // ReflectionPropertyInspector, bound once
+        private PropertyChangeApplier $applier,     // ReflectionChangeApplier, bound once
+        private SanitizeEngine $engine,             // the processor's own rules engine
+    ) {}
 
-// 2. Inspect — results cached after first call per class
-$handler = new MyValidationHandler();
-$inspector->inspect($user, $handler);
+    public function sanitize(object $dto): object
+    {
+        $this->inspector->inspect($dto, Sanitize::class, $rules = new SanitizeRules());
 
-// 3. Read processed values and errors
-$values = $handler->getProcessedPropertyValues();
-$errors = $handler->getProcessingResultErrors();
-
-// 4. Write back changed values via PropertyAccessor
-$accessor = new PropertyAccessor($user, 'email');
-$accessor->setValue(strtolower($accessor->getValue()));
+        return $this->applier->applyChanges($dto, $this->engine->run($rules));   // a new instance
+    }
+}
 ```
 
 ---
@@ -68,8 +64,7 @@ $accessor->setValue(strtolower($accessor->getValue()));
 | Requirement | Version |
 |---|---|
 | PHP | 8.4 or higher |
-| kariricode/contract | ^2.8 |
-| kariricode/exception | ^1.2 |
+| kariricode/contract | ^2.12 |
 
 ---
 
@@ -79,203 +74,119 @@ $accessor->setValue(strtolower($accessor->getValue()));
 composer require kariricode/property-inspector
 ```
 
+Bind the implementations to the contracts once:
+
+```php
+use KaririCode\Contract\Inspection\PropertyChangeApplier;
+use KaririCode\Contract\Inspection\PropertyInspector;
+use KaririCode\PropertyInspector\Core\ReflectionChangeApplier;
+use KaririCode\PropertyInspector\Core\ReflectionPropertyInspector;
+
+$container->instance(PropertyInspector::class, new ReflectionPropertyInspector());
+$container->instance(PropertyChangeApplier::class, new ReflectionChangeApplier());
+```
+
 ---
 
 ## Quick Start
 
-Define an attribute, an entity, a handler — and inspect:
+Sanitize a readonly DPO: inspect it, process what the handler collected, write the result to a copy.
 
 ```php
 <?php
 
 declare(strict_types=1);
 
-require_once __DIR__ . '/vendor/autoload.php';
+use KaririCode\Contract\Inspection\PropertyAttributeHandler;
+use KaririCode\PropertyInspector\Core\ReflectionChangeApplier;
+use KaririCode\PropertyInspector\Core\ReflectionPropertyInspector;
 
-use Attribute;
-use KaririCode\PropertyInspector\AttributeAnalyzer;
-use KaririCode\PropertyInspector\Contract\PropertyAttributeHandler;
-use KaririCode\PropertyInspector\Utility\PropertyInspector;
-
-// 1. Define a custom attribute
-#[Attribute(Attribute::TARGET_PROPERTY)]
-final class Validate
+#[Attribute(Attribute::TARGET_PROPERTY | Attribute::IS_REPEATABLE)]
+final readonly class Sanitize
 {
-    public function __construct(public readonly array $rules = []) {}
+    public function __construct(public string $rule) {}
 }
 
-// 2. Define an entity with annotated properties
-final class User
+final readonly class SignUp
 {
     public function __construct(
-        #[Validate(['required', 'min:3'])]
-        public string $name = '',
-
-        #[Validate(['required', 'email'])]
-        public string $email = '',
-
-        #[Validate(['required', 'min:18'])]
-        public int $age = 0,
+        #[Sanitize('trim')]
+        #[Sanitize('lowercase')]
+        public string $email,
+        #[Sanitize('trim')]
+        public string $name,
     ) {}
 }
 
-// 3. Implement a handler
-final class ValidationHandler implements PropertyAttributeHandler
+final class SanitizeRules implements PropertyAttributeHandler
 {
-    private array $processed = [];
-    private array $errors    = [];
+    /** @var array<string, mixed> */
+    public private(set) array $values = [];
 
-    public function handleAttribute(string $propertyName, object $attribute, mixed $value): mixed
+    /** @var array<string, list<string>> */
+    public private(set) array $rules = [];
+
+    public function handleAttribute(string $propertyName, object $attribute, mixed $value): void
     {
-        $this->processed[$propertyName] = $value;
-
-        if ($attribute instanceof Validate) {
-            foreach ($attribute->rules as $rule) {
-                if ($rule === 'required' && ($value === '' || $value === null)) {
-                    $this->errors[$propertyName]['required'] = 'Field is required';
-                }
-                if (str_starts_with($rule, 'min:')) {
-                    $min = (int) substr($rule, 4);
-                    if (is_string($value) && strlen($value) < $min) {
-                        $this->errors[$propertyName]['min'] = "Min {$min} chars required";
-                    }
-                    if (is_int($value) && $value < $min) {
-                        $this->errors[$propertyName]['min'] = "Must be at least {$min}";
-                    }
-                }
-            }
-        }
-
-        return $value;
+        $this->values[$propertyName] = $value;
+        $this->rules[$propertyName][] = $attribute->rule;
     }
-
-    public function getProcessedPropertyValues(): array { return $this->processed; }
-    public function getProcessingResultMessages(): array { return []; }
-    public function getProcessingResultErrors(): array   { return $this->errors; }
 }
 
-// 4. Run the pipeline
-$user      = new User(name: 'Walmir', email: 'walmir@kariricode.org', age: 30);
-$analyzer  = new AttributeAnalyzer(Validate::class);
-$inspector = new PropertyInspector($analyzer);
-$handler   = new ValidationHandler();
+$signUp = new SignUp(email: ' Walmir@KaririCode.org ', name: ' Walmir ');
 
-$inspector->inspect($user, $handler);
+(new ReflectionPropertyInspector())->inspect($signUp, Sanitize::class, $rules = new SanitizeRules());
 
-var_dump($handler->getProcessedPropertyValues());
-// ['name' => 'Walmir', 'email' => 'walmir@kariricode.org', 'age' => 30]
+$changes = [];
+foreach ($rules->rules as $property => $list) {
+    $changes[$property] = array_reduce($list, static fn(string $v, string $rule): string => match ($rule) {
+        'trim' => trim($v),
+        'lowercase' => strtolower($v),
+    }, $rules->values[$property]);
+}
 
-var_dump($handler->getProcessingResultErrors());
-// [] — all good
+$clean = (new ReflectionChangeApplier())->applyChanges($signUp, $changes);
+
+echo $clean->email;   // walmir@kariricode.org
+echo $signUp->email;  // ' Walmir@KaririCode.org ' (the original is untouched)
 ```
 
 ---
 
 ## Features
 
-### Reflection Caching
+### One inspector for every processor
 
-`AttributeAnalyzer` caches reflection metadata after the first analysis per class. Subsequent calls for the same class — even with different object instances — skip `ReflectionClass` entirely:
+The attribute class is an argument of `inspect()`, so a single `ReflectionPropertyInspector` serves the sanitizer, the validator and the transformer. Matching uses `IS_INSTANCEOF`, so passing an interface selects every attribute that implements it.
 
-```php
-$analyzer = new AttributeAnalyzer(Validate::class);
-$inspector = new PropertyInspector($analyzer);
+### Copy-on-write for readonly DPOs
 
-// First call: reflection + cache build
-$inspector->inspect($user1, $handler1);
+`ReflectionChangeApplier::applyChanges()` returns a new instance and never writes to the original. Unchanged state is copied as stored, every storage slot exactly once: a parent's private properties are included, and a property redeclared by a subclass is copied once. Changed properties are assigned, so their set hooks run. The constructor does not run, so validate the copy (ADR-006).
 
-// Subsequent calls: metadata from cache — zero reflection overhead
-$inspector->inspect($user2, $handler2);
-$inspector->inspect($user3, $handler3);
+### Reflection caching
 
-// Force re-analysis when needed (e.g., after metadata change)
-$analyzer->clearCache();
-```
+Reflection metadata and attribute instances are cached per class and attribute class. Values are read on every call, never cached. `clearCache()` empties the cache.
 
-### Multi-Pass Inspection
+### Exceptions that keep their family
 
-Run multiple independent passes over the same object with different attribute types:
-
-```php
-// Pass 1: sanitize
-$sanitizeInspector = new PropertyInspector(new AttributeAnalyzer(Sanitize::class));
-$sanitizeHandler   = new TrimLowercaseHandler();
-$sanitizeInspector->inspect($user, $sanitizeHandler);
-
-// Apply sanitized values back to the object
-foreach ($sanitizeHandler->getProcessedPropertyValues() as $prop => $value) {
-    (new PropertyAccessor($user, $prop))->setValue($value);
-}
-
-// Pass 2: validate on sanitized data
-$validateInspector = new PropertyInspector(new AttributeAnalyzer(Validate::class));
-$validateHandler   = new ValidationHandler();
-$validateInspector->inspect($user, $validateHandler);
-
-$errors = $validateHandler->getProcessingResultErrors(); // [] if clean
-```
-
-### PropertyAccessor — Safe Property Mutation
-
-Read and write any property (public, protected, private) without `setAccessible` boilerplate:
-
-```php
-use KaririCode\PropertyInspector\Utility\PropertyAccessor;
-
-$accessor = new PropertyAccessor($user, 'email');
-
-$current = $accessor->getValue();           // read
-$accessor->setValue(strtolower($current));  // write (no setAccessible needed)
-```
-
-### Attribute Polymorphism
-
-`AttributeAnalyzer` uses `ReflectionAttribute::IS_INSTANCEOF` — it matches **attribute hierarchies**, not just exact class names:
-
-```php
-// Matches Validate + any subclass of Validate
-$analyzer = new AttributeAnalyzer(Validate::class);
-```
-
-### Isolated Error Handling
-
-All exceptions from reflection or handler code are wrapped in `PropertyInspectionException` — your calling code only needs to catch one type:
-
-```php
-use KaririCode\PropertyInspector\Exception\PropertyInspectionException;
-
-try {
-    $inspector->inspect($user, $handler);
-} catch (PropertyInspectionException $e) {
-    // ReflectionException, TypeError, Error — all caught and re-wrapped
-    // $e->getCode(): 2501–2506, see SPEC-001 §5
-}
-```
-
-The message still includes the cause message; do not show it to end users (SECURITY.md).
+The package's own failures are `Runtime` faults with stable codes (2503–2523), and their messages never echo input (ADR-011). An exception thrown by your handler, for example a `Validation`, reaches the caller unchanged and still maps to a 422 at the edge (ADR-010).
 
 ---
 
 ## The Inspection Pipeline
 
 ```
-$inspector->inspect($object, $handler)
-        │
-        ▼
-AttributeAnalyzer::analyzeObject($object)
-  ├── Check class cache
-  ├── If miss: ReflectionClass → getProperties()
-  │       └── foreach property:
-  │               getAttributes($attributeClass, IS_INSTANCEOF)
-  │               newInstance() → cache [{attributes, property}]
-  └── extractValues($object): [{value, attributes}]
-        │
-        ▼
-foreach property → foreach attribute:
-    $handler->handleAttribute($propertyName, $attribute, $value)
-        │
-        ▼
-return $handler  (accumulates processed values + errors)
+inspect($dpo, Sanitize::class, $handler)
+  └─ AttributeAnalyzer (cached per class × attribute class)
+       getProperties() → getAttributes(Sanitize::class, IS_INSTANCEOF) → newInstance()
+  └─ read every annotated value          (uninitialized → 2507, before any handler call)
+  └─ handler->handleAttribute(name, attribute, value)   once per attribute, declaration order
+
+applyChanges($dpo, $changes)
+  └─ resolve names                        (unknown → 2520, static → 2521)
+  └─ newInstanceWithoutConstructor()      (enum or internal final class → 2523)
+  └─ copy every storage slot once, raw    (no set hooks)
+  └─ assign each change                   (set hooks run; \Error → 2522)
 ```
 
 ---
@@ -286,34 +197,29 @@ return $handler  (accumulates processed values + errors)
 
 ```
 src/
-├── AttributeAnalyzer.php      Core analyzer — reflection + cache + attribute extraction
-├── Contract/
-│   ├── AttributeAnalyzer.php       Interface: analyzeObject · clearCache
-│   ├── PropertyAttributeHandler.php Interface: handleAttribute · getProcessed* · getErrors
-│   ├── PropertyChangeApplier.php   Interface: applyChanges
-│   └── PropertyInspector.php       Interface: inspect
-├── Exception/
-│   └── PropertyInspectionException.php  Named factory methods per failure mode
-└── Utility/
-    ├── PropertyAccessor.php   Safe property read/write (private, protected, public)
-    └── PropertyInspector.php  Orchestrator: delegates analysis → handler
+├── Core/
+│   ├── ReflectionPropertyInspector.php   implements Contract\Inspection\PropertyInspector
+│   ├── ReflectionChangeApplier.php       implements Contract\Inspection\PropertyChangeApplier
+│   ├── AttributeAnalyzer.php             internal: cached analysis per class × attribute class
+│   ├── AnalyzedClass.php                 internal Value Object
+│   └── AnalyzedProperty.php              internal Value Object
+└── Exception/
+    ├── PropertyInspectionException.php   marker interface, extends Contract\Exception\Runtime
+    ├── InspectionFailedException.php     2503, 2506, 2507
+    └── ChangeRejectedException.php       2520–2523
 ```
 
 ### Key design decisions
 
 | Decision | Rationale | ADR |
 |---|---|---|
-| Reflection cache per class | One `ReflectionClass` call per type, not per instance | — |
-| Remove `setAccessible` | No-op since PHP 8.1 | [ADR-001](docs/adr/ADR-001-remove-setaccessible-dead-code.md) |
-| `clearCache()` on interface | Callers typed against the contract can bound the cache | [ADR-002](docs/adr/ADR-002-add-clearcache-to-interface.md) |
-| Wrapped exception hierarchy | Callers catch `PropertyInspectionException`, not reflection internals | [ADR-003](docs/adr/ADR-003-correct-throws-annotation.md) |
-| No double-wrapping | Analyzer codes reach the caller intact | [ADR-004](docs/adr/ADR-004-prevent-exception-double-wrapping.md) |
-| Code 2506 | Attribute-constructor failures are wrapped too | [ADR-005](docs/adr/ADR-005-symmetric-analysis-exception-handling.md) |
-| Copy-on-write applier (proposed) | Readonly DPOs cannot be written in place | [ADR-006](docs/adr/ADR-006-immutable-change-application.md) |
+| Copy-on-write applier | Readonly DPOs cannot be written in place (ARFA P1) | [ADR-006](docs/adr/ADR-006-immutable-change-application.md) |
 | Toolchain in the repository | The Specification prevails over the Devkit | [ADR-007](docs/adr/ADR-007-quality-toolchain-and-supply-chain.md) |
 | `object` parameters | The domain is any object | [ADR-008](docs/adr/ADR-008-object-typed-inspection-api.md) |
-| 3.0 alignment (proposed) | Contract exception family, §18 API, §31 coupling | [ADR-009](docs/adr/ADR-009-ecosystem-contract-alignment-3-0.md) |
-| Handler-returned values | Handler decides the processed value — supports chaining and transformation | — |
+| Implement kariricode/contract 2.12 | Consumers depend on the contract only (§31) | [ADR-009](docs/adr/ADR-009-ecosystem-contract-alignment-3-0.md) |
+| Handler and hook exceptions propagate | A `Validation` stays a 422 | [ADR-010](docs/adr/ADR-010-handler-and-hook-exceptions-propagate.md) |
+| Runtime family, stable codes, E-047 messages | One catchable family; no input in messages | [ADR-011](docs/adr/ADR-011-exception-model-3-0.md) |
+| P5 by delegation (proposed) | Inspection runs inside a processor's operation | [ADR-012](docs/adr/ADR-012-observability-by-delegation.md) |
 
 ### Specifications
 
@@ -327,14 +233,24 @@ Index of all documents: [docs/README.md](docs/README.md).
 
 ## Integration with the KaririCode Ecosystem
 
-Published dependents on Packagist (checked 2026-10-02):
-
-| Package | Requires |
+| Package | Role |
 |---|---|
-| `kariricode/sanitizer` 1.2.3 | `^2.0` |
-| `kariricode/validator` 1.0.0 | `^1.0` |
+| `kariricode/contract` 2.12 | Defines `Inspection\PropertyInspector`, `PropertyAttributeHandler` and `PropertyChangeApplier` |
+| sanitizer, transformer, serializer, validator | Consume the two services through the contract; their handlers implement `PropertyAttributeHandler` |
 
-Spec V4.3.3 §31 routes coupling between components through `kariricode/contract`. The move of these contracts there is planned in [ADR-009](docs/adr/ADR-009-ecosystem-contract-alignment-3-0.md).
+Spec V4.3.3 §31 routes coupling between components through `kariricode/contract`. On Packagist, as of 2026-10-27, kariricode/sanitizer 1.2.3 and kariricode/validator 1.0.0 still require the 2.x line directly.
+
+---
+
+## Migrating from 2.x
+
+3.0 is a major release; see [UPGRADE-3.0.md](UPGRADE-3.0.md). In short:
+
+- depend on `kariricode/contract:^2.12`;
+- pass the attribute class to `inspect()`;
+- make handlers implement `handleAttribute(): void` only;
+- write back with `applyChanges()`, which returns a copy;
+- catch your own handler's exceptions, because they are no longer wrapped.
 
 ---
 
@@ -342,23 +258,23 @@ Spec V4.3.3 §31 routes coupling between components through `kariricode/contract
 
 | Metric | Value |
 |---|---|
-| PHP source files | 8 (531 lines) |
-| Runtime dependencies | 2 (contract · exception) |
-| Tests | 67 (unit 47 · integration 5 · conformance 15) |
+| PHP source files | 8 (676 lines) |
+| Runtime dependencies | 1 (`kariricode/contract`) |
+| Tests | 75 (unit 57 · integration 3 · conformance 15) |
 | Line coverage | 100% (pcov) |
-| Mutation score | MSI 100% (36 of 36 killed) |
+| Mutation score | MSI 100% (90 of 90 killed) |
 | PHPStan / Psalm | level max / errorLevel 1, no baseline |
 | Spec / ARFA / ASVS | V4.3.3 / 1.3 Level 1 / 5.0 Level 1 |
 
-Measured locally on 2026-10-27; details in [QD-V433](docs/quality/QD-V433-COMPLIANCE.md).
+Measured locally on 2026-10-27 against kariricode/contract 2.12.0 built from its sources; details in [QD-V433](docs/quality/QD-V433-COMPLIANCE.md).
 
 ---
 
 ## Contributing
 
 ```bash
-git clone https://github.com/KaririCode-Framework/kariricode-property-inspector.git
-cd kariricode-property-inspector
+git clone https://github.com/KaririCode-PHP/property-inspector.git
+cd property-inspector
 composer install
 composer quality     # must pass before opening a PR
 composer infection   # MSI >= 80% (needs pcov or Xdebug)
@@ -372,12 +288,8 @@ Rules and conventions: [CONTRIBUTING.md](CONTRIBUTING.md). Security: [SECURITY.m
 
 [MIT License](LICENSE) © [Walmir Silva](mailto:community@kariricode.org)
 
----
-
 <div align="center">
 
-Part of the **[KaririCode Framework](https://kariricode.org)** ecosystem.
-
-[kariricode.org](https://kariricode.org) · [GitHub](https://github.com/KaririCode-Framework/kariricode-property-inspector) · [Packagist](https://packagist.org/packages/kariricode/property-inspector) · [Issues](https://github.com/KaririCode-Framework/kariricode-property-inspector/issues)
+[kariricode.org](https://kariricode.org) · [GitHub](https://github.com/KaririCode-PHP/property-inspector) · [Packagist](https://packagist.org/packages/kariricode/property-inspector)
 
 </div>

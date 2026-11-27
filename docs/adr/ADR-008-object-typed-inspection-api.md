@@ -2,8 +2,8 @@
 
 | Field | Value |
 |---|---|
-| Status | Accepted — 2026-10-02 |
-| Component | kariricode/property-inspector 2.1 |
+| Status | Accepted — 2026-10-02 (signatures updated for 3.0.0 on 2026-10-27) |
+| Component | kariricode/property-inspector 3.0 |
 | Standards | KaririCode Spec V4.3.3 §18, §31 |
 | Related | ADR-009 |
 
@@ -13,7 +13,7 @@ The ecosystem conformance suites reject `object` parameters, because `object` wa
 
 ## Decision
 
-Keep `object` on these seven signatures (interfaces and implementations). `SpecConformanceTest::OBJECT_PARAMETER_DEVIATIONS` pins the exact list, so any new `object` parameter fails the build.
+Keep `object` on the two implementations, `ReflectionPropertyInspector::inspect($object)` and `ReflectionChangeApplier::applyChanges($object)`. The contract interfaces they implement, and `PropertyAttributeHandler::handleAttribute($attribute)`, live in kariricode/contract 2.12.0 with the same types. `SpecConformanceTest::OBJECT_PARAMETER_DEVIATIONS` pins the exact list, so any new `object` parameter fails the build.
 
 ## Alternatives Considered
 

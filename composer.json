@@ -1,19 +1,20 @@
 {
     "name": "kariricode/property-inspector",
-    "description": "Attribute-based property analysis and inspection for the KaririCode Framework, enabling dynamic validation, normalization, and processing of object properties via PHP 8.4+ attributes and reflection.",
+    "description": "Reflection-based implementation of the kariricode/contract property inspection contracts: finds the properties of an object that carry an attribute, hands them to a processor's handler, and writes processed values back to a copy, so readonly DPOs work. PHP 8.4+.",
     "keywords": [
         "kariri-code",
         "property-inspector",
         "attribute",
         "reflection",
-        "validation",
-        "normalization",
         "inspection",
         "object-properties",
         "dynamic-analysis",
         "metadata",
         "framework",
-        "php84"
+        "php84",
+        "copy-on-write",
+        "readonly",
+        "dpo"
     ],
     "homepage": "https://kariricode.org",
     "type": "library",
@@ -26,8 +27,7 @@
     ],
     "require": {
         "php": "^8.4",
-        "kariricode/contract": "^2.8",
-        "kariricode/exception": "^1.2"
+        "kariricode/contract": "^2.12"
     },
     "require-dev": {
         "friendsofphp/php-cs-fixer": "^3.75",
@@ -104,8 +104,8 @@
         }
     },
     "support": {
-        "issues": "https://github.com/KaririCode-Framework/kariricode-property-inspector/issues",
-        "source": "https://github.com/KaririCode-Framework/kariricode-property-inspector"
+        "issues": "https://github.com/KaririCode-PHP/property-inspector/issues",
+        "source": "https://github.com/KaririCode-PHP/property-inspector"
     },
     "minimum-stability": "stable",
     "prefer-stable": true

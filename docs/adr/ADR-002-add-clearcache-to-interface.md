@@ -2,7 +2,7 @@
 
 | Field | Value |
 |---|---|
-| Status | Accepted — 2026-02-28 (rationale corrected 2026-10-02) |
+| Status | Superseded in 3.0.0 by ADR-009 — accepted 2026-02-28; `clearCache()` now lives on `ReflectionPropertyInspector` |
 | Component | kariricode/property-inspector 2.0 |
 | Standards | KaririCode Spec V4.3.3 §31 (depend on contracts) |
 | Related | ADR-009 |

@@ -2,117 +2,120 @@
 
 | Field | Value |
 |---|---|
-| Component | kariricode/property-inspector 2.1.0 |
-| Status | Final for 2.1.0 |
-| Standards | KaririCode Spec V4.3.3 · ARFA 1.3 Level 1 · OWASP ASVS 5.0 Level 1 |
-| Date | 2026-10-02 |
+| Component | kariricode/property-inspector 3.0.0 |
+| Status | Final for 3.0.0 |
+| Standards | KaririCode Spec V4.3.3 · ARFA 1.3 Level 1 · OWASP ASVS 5.0 Level 1 · kariricode/contract 2.12.0 |
+| Date | 2026-10-27 |
 
 ## 1. Purpose
 
-Find the properties of an object that carry a given PHP attribute, read their current values, and hand each (property, attribute, value) triple to a processor-defined handler. Sanitizers, validators and transformers use it to drive their rules from declarations instead of mapping code.
+Implement the property inspection contracts of kariricode/contract (`KaririCode\Contract\Inspection`).
+
+- **Inspection.** Find the properties of an object that carry an attribute of a given class, read their current values, and hand each (property, attribute, value) triple to a processor's handler.
+- **Change application.** Write processed values back to a copy of the object, so readonly DPOs work.
+
+Sanitizers, validators, transformers and serializers drive their rules from these declarations instead of mapping code, and depend only on the contract.
 
 ## 2. Architecture
 
 ```
-caller ── inspect($object, $handler) ──▶ Utility\PropertyInspector
-                                            │
-                                            ▼
-                               AttributeAnalyzer::analyzeObject($object)
-                               ├─ cache hit?  no → ReflectionClass::getProperties()
-                               │                    getAttributes(class, IS_INSTANCEOF)
-                               │                    newInstance() → cache per class
-                               └─ read current values (never cached)
-                                            │
-                                            ▼
-              foreach property, foreach attribute → $handler->handleAttribute(...)
-                                            │
-                                            ▼
-                         handler (processor semantics, accumulates results)
-                                            │  optional
-                                            ▼
-                         PropertyChangeApplier → Utility\PropertyAccessor (in place)
+processor ── inspect($dpo, Sanitize::class, $handler) ──▶ Core\ReflectionPropertyInspector
+                                                            │ (Contract\Inspection\PropertyInspector)
+                                                            ▼
+                                       Core\AttributeAnalyzer (internal, cached per class × attribute class)
+                                       ├─ getProperties() → getAttributes(class, IS_INSTANCEOF)
+                                       └─ newInstance()   → AnalyzedClass / AnalyzedProperty
+                                                            │
+                                    read every value first (uninitialized → 2507), then
+                                                            ▼
+              handler->handleAttribute(name, attribute, value)   ← processor's PropertyAttributeHandler
+                                                            │
+processor ── applyChanges($dpo, $changes) ───────────────▶ Core\ReflectionChangeApplier
+                                                            │ (Contract\Inspection\PropertyChangeApplier)
+                                                            ▼
+                                 new instance without constructor · every slot copied once · changes assigned
 ```
 
 ## 3. Contracts and Invariants
 
+The contracts are defined in kariricode/contract 2.12.0:
+
 ```php
-interface AttributeAnalyzer {
-    public function analyzeObject(object $object): array; // array<string, array{value: mixed, attributes: list<object>}>
-    public function clearCache(): void;
-}
-interface PropertyInspector {
-    public function inspect(object $object, PropertyAttributeHandler $handler): PropertyAttributeHandler;
-}
-interface PropertyAttributeHandler {
-    public function handleAttribute(string $propertyName, object $attribute, mixed $value): mixed;
-    public function getProcessedPropertyValues(): array;
-    public function getProcessingResultMessages(): array;
-    public function getProcessingResultErrors(): array;
-}
-interface PropertyChangeApplier {
-    public function applyChanges(object $object): void;
-}
+namespace KaririCode\Contract\Inspection;
+interface PropertyInspector       { public function inspect(object $object, string $attributeClass, PropertyAttributeHandler $handler): void; }
+interface PropertyAttributeHandler { public function handleAttribute(string $propertyName, object $attribute, mixed $value): void; }
+interface PropertyChangeApplier   { public function applyChanges(object $object, array $changes): object; } // @template T: T in, T out
 ```
 
 | ID | Invariant | Verified by |
 |---|---|---|
-| INV-001 | Only properties carrying the target attribute are returned | `AttributeAnalyzerTest` |
-| INV-002 | Matching uses `IS_INSTANCEOF` (interfaces and base classes match) | `testAnalyzeObjectSupportsIsInstanceOfFiltering` |
-| INV-003 | `clearCache()` resets all cached metadata | `testAnalyzeObjectReusesAttributeInstancesUntilCacheIsCleared` |
-| INV-004 | `analyzeObject()` never leaks a raw throwable (2501, 2503, 2506) | fail-closed group |
-| INV-005 | `inspect()` calls the handler once per attribute instance per property | `PropertyInspectorTest` |
-| INV-006 | `inspect()` returns the handler it received | `testInspectReturnsSameHandlerInstance` |
-| INV-007 | An analyzer `PropertyInspectionException` propagates unchanged; handler failures are wrapped (2502, 2504, 2505) | ADR-004, fail-closed group |
-| INV-008 | The handler receives the value at inspection time | `testAnalyzeObjectReflectsCurrentValueAfterMutation` |
-| INV-009 | Handler results are keyed by property name | `InspectionPipelineTest` |
-| INV-010 | `PropertyAccessor` writes any visibility, including `private(set)`; `set` hooks run; an initialized readonly property raises `\Error` | `PropertyAccessorTest` |
-| INV-011 | Annotated typed properties must be initialized, otherwise 2503 | `testAnalyzeObjectWrapsUninitializedTypedPropertyAsCode2503` |
-| INV-012 | Attribute instances are shared per class per analyzer and must not be mutated | `testAnalyzeObjectReusesAttributeInstancesUntilCacheIsCleared` |
-| INV-013 | Property values are never cached | `testAnalyzeObjectReflectsCurrentValueAfterMutation` |
+| INV-001 | Only properties carrying an attribute that is an instance of the requested class reach the handler | `everyMatchingAttributeReachesTheHandlerInDeclarationOrder` |
+| INV-002 | Matching uses `IS_INSTANCEOF`: an interface or base class matches every implementer | `anInterfaceMatchesEveryAttributeThatImplementsIt` |
+| INV-003 | The object's own properties of any visibility, then inherited public and protected ones; never a parent's private property; never a static property | `inheritedProtectedPropertiesAreInspectedButAParentsPrivateOnesAreNot`, `staticPropertiesAreNotInspected` |
+| INV-004 | One `handleAttribute()` per matching attribute instance, a property's attributes in declaration order | `everyMatchingAttributeReachesTheHandlerInDeclarationOrder` |
+| INV-005 | The handler receives the value held during the call; values are never cached; a virtual property is read through its get hook | `theHandlerReceivesTheValueHeldDuringTheCall`, `aVirtualPropertyIsReadThroughItsGetHook` |
+| INV-006 | Inspection never writes to the object | `inspectingNeverWritesToTheObject` |
+| INV-007 | The inspection's own failures (2503, 2506, 2507) are raised before the handler runs | `anAttributeThatCannotBeInstantiatedIsARuntimeFaultRaisedBeforeTheHandlerRuns`, `anUninitializedAnnotatedPropertyIsARuntimeFault` |
+| INV-008 | An exception thrown by the handler, or by the object's hooks, propagates unchanged (ADR-010) | `anExceptionFromTheHandlerKeepsItsFamily`, `anExceptionFromASetHookPropagatesUnchanged` |
+| INV-009 | Analysis is cached per class and attribute class; attribute instances are shared until `clearCache()` and must not be changed | `attributeInstancesAreSharedUntilTheCacheIsCleared`, `eachAttributeClassIsAnalyzedOnItsOwn` |
+| INV-010 | `applyChanges()` returns a new instance, also for an empty change set, and never writes to its argument | `anEmptyChangeSetStillYieldsANewEqualInstance`, `theCopyHoldsTheChangesAndTheReadonlyOriginalIsUntouched` |
+| INV-011 | Unchanged state is copied as stored, without set hooks, every storage slot exactly once: a parent's private properties included, a redeclared property once, virtual properties skipped | `unchangedStateIsCopiedIncludingAParentsPrivateProperties`, `aPropertyRedeclaredByASubclassIsWrittenOnce`, `aVirtualPropertyIsComputedOnTheCopyNotCopied` |
+| INV-012 | Changes are assigned, so set hooks run; an uninitialized property stays uninitialized unless changed | `aChangeRunsTheSetHookAndACopiedValueDoesNot`, `anUninitializedPropertyStaysUninitializedUnlessChanged` |
+| INV-013 | Names are resolved before anything is written; a rejected change set raises instead of returning a partial copy | `namesAreResolvedBeforeAnyValueIsWritten`, `anUnknownPropertyIsARuntimeFault` |
 
 ## 4. Caching
 
-The cache key is `$object::class`, scoped to one analyzer instance. The entry holds the `ReflectionProperty` and the attribute instances of each matching property. Nothing evicts entries automatically; long-running workers call `clearCache()`.
+- **Key.** The cache is keyed by `[$object::class][$attributeClass]` and scoped to one `AttributeAnalyzer`. `ReflectionPropertyInspector` builds its own analyzer unless one is injected.
+- **Entry.** Each entry holds the `ReflectionProperty` and the attribute instances of each matching property. Values are read on every call.
+- **Eviction.** None is automatic. The cache grows with the classes and attribute classes a process inspects, which is bounded by its code. `ReflectionPropertyInspector::clearCache()` empties it.
 
 ## 5. Error Model
 
-Every failure surfaces as `PropertyInspectionException`, with the cause kept as previous. The code range is declared in `composer.json` as `PI-2500–2599`; it is pending registration in the ecosystem registry.
+- **Package failures.** Every failure the package raises implements `Exception\PropertyInspectionException`, which extends `Contract\Exception\Runtime` (ADR-011).
+- **Messages.** They read `[PI_<code>] <detail>`. They never contain the cause's message or a rejected value; the cause stays available as previous (E-047).
+- **Range.** Declared in `composer.json` as `PI-2500–2599`; pending registration in the ecosystem registry.
 
-| Code | Name | Phase | Cause |
+| Code | Name | Raised by | Cause |
 |---|---|---|---|
-| 2501 | REFLECTION_ANALYSIS_ERROR | analysis | `\ReflectionException` |
-| 2502 | REFLECTION_INSPECTION_ERROR | inspection | `\ReflectionException` raised by the handler |
-| 2503 | GENERAL_ANALYSIS_ERROR | analysis | `\Error`, e.g. an uninitialized typed property |
-| 2504 | GENERAL_INSPECTION_ERROR | inspection | `\Exception` raised by the handler |
-| 2505 | CRITICAL_INSPECTION_ERROR | inspection | `\Error` raised by the handler |
-| 2506 | GENERAL_ANALYSIS_EXCEPTION | analysis | `\Exception`, e.g. an attribute constructor throws |
+| 2503 | ATTRIBUTE_NOT_INSTANTIABLE | InspectionFailedException | an attribute cannot be instantiated (missing class, not an attribute, wrong target, bad arguments) |
+| 2506 | ATTRIBUTE_CONSTRUCTOR_FAILED | InspectionFailedException | an attribute constructor threw an `\Exception` |
+| 2507 | UNINITIALIZED_PROPERTY | InspectionFailedException | a property carrying a matching attribute is not initialized |
+| 2520 | UNKNOWN_PROPERTY | ChangeRejectedException | a change names no writable property (a parent's private property included) |
+| 2521 | STATIC_PROPERTY | ChangeRejectedException | a change names a static property |
+| 2522 | VALUE_REJECTED | ChangeRejectedException | the assignment raised an `\Error` (type, readonly, read-only) |
+| 2523 | NOT_COPYABLE | ChangeRejectedException | the class cannot be instantiated without its constructor (enum, internal final class) |
+
+**Retired in 3.0.0:**
+- **2501** is folded into 2506.
+- **2502, 2504 and 2505** were handler failures; handler exceptions now propagate unchanged (ADR-010).
+- **Uninitialized property.** It was 2503 in 2.x and is now 2507.
 
 ## 6. Ecosystem Integration
 
-Checked on Packagist on 2026-10-02:
+| Package | Role | Through |
+|---|---|---|
+| kariricode/contract 2.12.0 | defines the three interfaces | `Contract\Inspection\*` |
+| sanitizer, transformer, serializer, validator | consume `PropertyInspector` and `PropertyChangeApplier`; their handlers implement `PropertyAttributeHandler` | the contract only (Spec §31) |
 
-- kariricode/sanitizer 1.2.3 requires `^2.0`;
-- kariricode/validator 1.0.0 requires `^1.0`.
-
-Both are direct dependencies between sibling components, which Spec §31 rules out. ADR-009 plans the move to `kariricode/contract`.
+Migration from 2.x: UPGRADE-3.0.md. Today's dependents, checked on Packagist on 2026-10-27, still require the 2.x line: kariricode/sanitizer 1.2.3 (`^2.0`) and kariricode/validator 1.0.0 (`^1.0`).
 
 ## 7. Dependencies
 
 | Package | Constraint | Use |
 |---|---|---|
-| php | ^8.4 | runtime |
-| kariricode/contract | ^2.8 | none in `src/` yet; family exceptions in 3.0 (ADR-009) |
-| kariricode/exception | ^1.2 | base class of `PropertyInspectionException` (deviation, ADR-009) |
+| php | ^8.4 | runtime: `ReflectionProperty::getRawValue()`, `setRawValue()` and `isVirtual()` |
+| kariricode/contract | ^2.12 | the implemented interfaces and the `Runtime` family |
 
 ## 8. Conformance
 
 | Rule | Status |
 |---|---|
-| ARFA P1, immutable state | Partial: the analyzer cache is instance state; the applier mutates in place (ADR-006) |
+| ARFA P1, immutable state | Pass: copy-on-write applier (ADR-006); the analyzer cache is the only instance state |
 | ARFA P4, protocol agnostic | Pass |
-| ARFA P5, observability | Gap: no telemetry; decision pending (ADR-009) |
-| §8.4 exception family | Deviation until contract 2.11.0 is tagged (ADR-009) |
-| §18 getters, array returns, `object` parameters | Exact deviation lists in `SpecConformanceTest` (ADR-008, ADR-009) |
+| ARFA P5, observability | By delegation (ADR-012, proposed) |
+| §8.4 exception family | Pass (ADR-011) |
+| §18 getters, array returns, final classes | Pass |
+| §18 `object` parameters | Deviation, accepted (ADR-008): the two implementations |
 | §29, §31, §32 tooling and supply chain | Pass (ADR-007) |
 
 ## 9. Security
@@ -122,4 +125,5 @@ ASVS 5.0 Level 1 is declared. Threats and mitigations are in `docs/security/THRE
 ## 10. References
 
 - KaririCode Specification V4.3.3; ARFA 1.3.
-- ADR-001 to ADR-009 in `docs/adr/`.
+- kariricode/contract 2.12.0: ADR-007, SPEC-001 §2.4.
+- ADR-001 to ADR-012 in `docs/adr/`.

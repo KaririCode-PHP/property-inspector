@@ -26,8 +26,12 @@ The tooling lives in this repository (ADR-007); it does not depend on the Kariri
   - magic methods;
   - catches that do not re-throw.
 
-  The current deviations are listed exactly in `tests/Conformance/SpecConformanceTest.php`.
-- **Tests.** Every bug fix ships with a test that fails without it. Tests that prove a failure never escapes unwrapped carry `#[Group('fail-closed')]`.
+  The one accepted deviation (`object` parameters, ADR-008) is listed exactly in `tests/Conformance/SpecConformanceTest.php`.
+- **Exceptions.** A failure of this package is a final class implementing `Exception\PropertyInspectionException` (family `Runtime`), built by a named factory, with a `[PI_<code>]` message that never echoes the cause or a value (ADR-011). Exceptions from handlers and property hooks are never wrapped (ADR-010).
+- **Tests.**
+  - Every bug fix ships with a test that fails without it.
+  - Tests that prove the package's own failures surface as `PropertyInspectionException` carry `#[Group('fail-closed')]`.
+  - The semantics of the contract are pinned by the tests named in SPEC-001 §3.
 
 ## Decisions and releases
 

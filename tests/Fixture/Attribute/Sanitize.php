@@ -6,11 +6,9 @@ namespace KaririCode\PropertyInspector\Tests\Fixture\Attribute;
 
 use Attribute;
 
-#[Attribute(Attribute::TARGET_PROPERTY)]
-final class Sanitize
+/** A repeatable sanitizing rule. Example: `#[Sanitize('trim')]` */
+#[Attribute(Attribute::TARGET_PROPERTY | Attribute::IS_REPEATABLE)]
+final readonly class Sanitize implements Rule
 {
-    /** @param list<string> $sanitizers */
-    public function __construct(
-        public readonly array $sanitizers = [],
-    ) {}
+    public function __construct(public string $rule) {}
 }

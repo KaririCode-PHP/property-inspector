@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace KaririCode\PropertyInspector\Tests\Conformance;
 
+use KaririCode\Contract\Exception\ExceptionInterface;
 use KaririCode\PropertyInspector\Exception\PropertyInspectionException;
 use PHPUnit\Framework\Attributes\CoversNothing;
 use PHPUnit\Framework\TestCase;
@@ -12,43 +13,37 @@ use PHPUnit\Framework\TestCase;
  * Executable form of the KaririCode Spec V4.3.3 / ARFA 1.3 rules that apply to
  * this component (§4, §8.4, §17, §18, §24, §29, §31, §32).
  *
- * Deviations accepted for the 2.x line are listed in the constants below and
- * justified in ADR-008 and ADR-009. Each list is exact: a new violation fails,
- * and so does a fixed one, until the list is updated together with the ADR.
+ * The one deviation 3.0 keeps is listed in a constant below and justified in
+ * ADR-008. Every list is exact: a new violation fails, and so does a fixed
+ * one, until the list is updated together with the ADR.
  */
 #[CoversNothing]
 final class SpecConformanceTest extends TestCase
 {
-    /** §18 getters kept for 2.x; they become properties in 3.0 (ADR-009). */
-    private const array GETTER_DEVIATIONS = [
-        'Contract\\PropertyAttributeHandler::getProcessedPropertyValues',
-        'Contract\\PropertyAttributeHandler::getProcessingResultErrors',
-        'Contract\\PropertyAttributeHandler::getProcessingResultMessages',
-        'Utility\\PropertyAccessor::getValue',
-    ];
+    /** §18: no parameterless getters (the 2.x ones left with ADR-009). */
+    private const array GETTER_DEVIATIONS = [];
 
-    /** §18 arrays returned as domain values; Value Objects in 3.0 (ADR-009). */
-    private const array ARRAY_RETURN_DEVIATIONS = [
-        'AttributeAnalyzer::analyzeObject',
-        'Contract\\AttributeAnalyzer::analyzeObject',
-        'Contract\\PropertyAttributeHandler::getProcessedPropertyValues',
-        'Contract\\PropertyAttributeHandler::getProcessingResultErrors',
-        'Contract\\PropertyAttributeHandler::getProcessingResultMessages',
-    ];
+    /** §18: no arrays as domain return values (ADR-009). */
+    private const array ARRAY_RETURN_DEVIATIONS = [];
 
     /** `object` parameters, accepted permanently: the domain is any object (ADR-008). */
     private const array OBJECT_PARAMETER_DEVIATIONS = [
-        'AttributeAnalyzer::analyzeObject($object)',
-        'Contract\\AttributeAnalyzer::analyzeObject($object)',
-        'Contract\\PropertyAttributeHandler::handleAttribute($attribute)',
-        'Contract\\PropertyChangeApplier::applyChanges($object)',
-        'Contract\\PropertyInspector::inspect($object)',
-        'Utility\\PropertyAccessor::__construct($object)',
-        'Utility\\PropertyInspector::inspect($object)',
+        'Core\\ReflectionChangeApplier::applyChanges($object)',
+        'Core\\ReflectionPropertyInspector::inspect($object)',
     ];
 
-    /** Concrete classes that are not final in 2.x (ADR-009). */
-    private const array NON_FINAL_DEVIATIONS = ['Utility\\PropertyAccessor'];
+    /** Every concrete class is final (ADR-009). */
+    private const array NON_FINAL_DEVIATIONS = [];
+
+    /** The six exception families of kariricode/contract 2.11 (Spec V4.3.3 §8.4). */
+    private const array CONTRACT_FAMILIES = [
+        'KaririCode\\Contract\\Exception\\Configuration',
+        'KaririCode\\Contract\\Exception\\ContainerFailure',
+        'KaririCode\\Contract\\Exception\\NotFound',
+        'KaririCode\\Contract\\Exception\\Protocol',
+        'KaririCode\\Contract\\Exception\\Runtime',
+        'KaririCode\\Contract\\Exception\\Validation',
+    ];
 
     private const array FORBIDDEN_METHODS = ['toArray', 'fromArray', 'jsonSerialize', '__get', '__set', '__isset', '__unset', '__call', '__callStatic'];
 
@@ -225,9 +220,11 @@ final class SpecConformanceTest extends TestCase
         self::assertSame(1, preg_match('/^PI-(\d{4})\x{2013}(\d{4})$/u', $range, $bounds), 'error-code-range');
 
         $codes = [];
-        foreach (new \ReflectionClass(PropertyInspectionException::class)->getReflectionConstants() as $constant) {
-            if (str_starts_with($constant->getName(), 'CODE_')) {
-                $codes[] = (int) $constant->getValue();
+        foreach (self::exceptionClasses() as $class) {
+            foreach ($class->getReflectionConstants() as $constant) {
+                if (str_starts_with($constant->getName(), 'CODE_')) {
+                    $codes[] = (int) $constant->getValue();
+                }
             }
         }
         sort($codes);
@@ -240,13 +237,20 @@ final class SpecConformanceTest extends TestCase
         self::assertSame($codes, array_map('intval', $documented[1]), 'SPEC-001 error table');
     }
 
-    public function testExceptionFamilyMigrationWaitsForContract211(): void
+    public function testEveryExceptionIsFinalAndInExactlyOneContractFamily(): void
     {
-        // Tripwire for ADR-009: when kariricode/contract 2.11 is installed, the
-        // exception must implement Contract\Exception\Runtime (§8.4) and stop
-        // echoing the cause message (E-047); this test must then be replaced.
-        self::assertFalse(interface_exists('KaririCode\\Contract\\Exception\\Runtime'));
-        self::assertStringContainsString('marker', PropertyInspectionException::failedToInspectObjectError(new \Error('marker'))->getMessage());
+        $classes = self::exceptionClasses();
+        self::assertNotEmpty($classes);
+
+        foreach ($classes as $class) {
+            $families = array_values(array_intersect(self::CONTRACT_FAMILIES, $class->getInterfaceNames()));
+
+            self::assertSame(['KaririCode\\Contract\\Exception\\Runtime'], $families, $class->getName());
+            self::assertTrue($class->implementsInterface(PropertyInspectionException::class), $class->getName());
+            self::assertTrue($class->implementsInterface(ExceptionInterface::class), $class->getName());
+            self::assertTrue($class->isFinal(), $class->getName());
+            self::assertFalse($class->getConstructor()?->isPublic() ?? true, $class->getName() . ' is built through named factories only');
+        }
     }
 
     // ── §4 / §31 / §32 metadata, tooling, supply chain ──────────────
@@ -260,8 +264,9 @@ final class SpecConformanceTest extends TestCase
             $composer['extra']['kariricode'] ?? null,
             'Spec V4.3.3 §4, gate G4',
         );
-        // kariricode/exception is a sibling dependency kept until 3.0 (ADR-009).
-        self::assertSame(['php', 'kariricode/contract', 'kariricode/exception'], array_keys((array) ($composer['require'] ?? [])));
+        // The contract is the only runtime dependency (§31, ADR-009).
+        self::assertSame(['php', 'kariricode/contract'], array_keys((array) ($composer['require'] ?? [])));
+        self::assertSame('^2.12', $composer['require']['kariricode/contract'] ?? null, 'the Inspection contracts arrive in 2.12.0');
         $dev = (array) ($composer['require-dev'] ?? []);
         foreach (['phpunit/phpunit', 'phpstan/phpstan', 'vimeo/psalm', 'friendsofphp/php-cs-fixer', 'infection/infection', 'nikic/php-parser'] as $tool) {
             self::assertArrayHasKey($tool, $dev);
@@ -310,7 +315,7 @@ final class SpecConformanceTest extends TestCase
     public function testDocumentationLayoutAndAdrFormat(): void
     {
         $root = SourceTree::root();
-        foreach (['README.md', 'CHANGELOG.md', 'SECURITY.md', 'CONTRIBUTING.md', 'docs/README.md', 'docs/spec/SPEC-001-property-inspection-pipeline.md', 'docs/quality/QD-V433-COMPLIANCE.md', 'docs/security/THREAT-MODEL.md'] as $file) {
+        foreach (['README.md', 'CHANGELOG.md', 'SECURITY.md', 'CONTRIBUTING.md', 'UPGRADE-3.0.md', 'docs/README.md', 'docs/spec/SPEC-001-property-inspection-pipeline.md', 'docs/quality/QD-V433-COMPLIANCE.md', 'docs/security/THREAT-MODEL.md'] as $file) {
             self::assertFileExists($root . '/' . $file);
         }
 
@@ -348,6 +353,20 @@ final class SpecConformanceTest extends TestCase
     }
 
     // ── helpers ─────────────────────────────────────────────────────
+
+    /** @return list<\ReflectionClass<object>> */
+    private static function exceptionClasses(): array
+    {
+        $classes = [];
+        foreach (SourceTree::declaredTypes() as $type) {
+            $class = new \ReflectionClass($type);
+            if (! $class->isInterface() && $class->implementsInterface(\Throwable::class)) {
+                $classes[] = $class;
+            }
+        }
+
+        return $classes;
+    }
 
     /** @return array<string, mixed> */
     private static function composer(): array

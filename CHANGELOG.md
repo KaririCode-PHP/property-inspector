@@ -2,6 +2,35 @@
 
 All notable changes to this project are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses [Semantic Versioning](https://semver.org/).
 
+## [3.0.0] — Unreleased
+
+Implements the property inspection contracts of kariricode/contract 2.12.0 and drops the package's own interfaces. Migration guide: [UPGRADE-3.0.md](UPGRADE-3.0.md).
+
+### Added
+
+- `Core\ReflectionPropertyInspector`, implementing `KaririCode\Contract\Inspection\PropertyInspector`:
+  - `inspect($object, $attributeClass, $handler)` takes the attribute class, so one instance serves every processor;
+  - `clearCache()` empties the analysis cache.
+- `Core\ReflectionChangeApplier`, implementing `KaririCode\Contract\Inspection\PropertyChangeApplier`. `applyChanges()` returns a copy, so readonly DPOs work (ADR-006).
+  - The copy walks the class hierarchy and writes every storage slot exactly once. A readonly property redeclared by a subclass is copied without the `Cannot modify readonly property` error that a level-by-level copy raises.
+- `Exception\InspectionFailedException` (2503, 2506, 2507) and `Exception\ChangeRejectedException` (2520–2523). Both are final, in the `Runtime` family, built through named factories, with `[PI_<code>]` messages that never echo the cause or the rejected value (ADR-011).
+- ADR-010 (handler and hook exceptions propagate), ADR-011 (exception model), ADR-012 (P5 by delegation, proposed), UPGRADE-3.0.md.
+
+### Changed
+
+- **Breaking.** `require` is `kariricode/contract: ^2.12`; kariricode/exception is no longer a dependency.
+- **Breaking.** `Exception\PropertyInspectionException` is an interface extending `Contract\Exception\Runtime`.
+- **Breaking.** Exceptions thrown by the handler, or by the object's own property hooks, propagate unchanged. Codes 2501, 2502, 2504 and 2505 are retired, and an uninitialized annotated property is 2507 instead of 2503 (ADR-010, ADR-011).
+- **Breaking.** Static properties are ignored by the inspector and rejected by the applier.
+- The analyzer caches per class and attribute class and returns Value Objects (`AnalyzedClass`, `AnalyzedProperty`). It is internal.
+- ADR-006 and ADR-009 are accepted and describe the implementation. ADR-002 and ADR-004 are superseded. ADR-005 and ADR-008 are amended. SPEC-001, README, QD-V433 and the threat model describe 3.0.
+- Repository URLs point to `KaririCode-PHP/property-inspector`.
+
+### Removed
+
+- **Breaking.** `Contract\AttributeAnalyzer`, `Contract\PropertyInspector`, `Contract\PropertyAttributeHandler` and `Contract\PropertyChangeApplier`, replaced by `KaririCode\Contract\Inspection\*`.
+- **Breaking.** The root `AttributeAnalyzer`, `Utility\PropertyInspector` and `Utility\PropertyAccessor`. Writes go through `PropertyChangeApplier`, on a copy.
+
 ## [2.1.0] — 2026-10-27
 
 ### Fixed
@@ -56,5 +85,6 @@ All notable changes to this project are documented here. The format follows [Kee
 
 - Dead `setAccessible()` calls (ADR-001).
 
-[2.1.0]: https://github.com/KaririCode-Framework/kariricode-property-inspector/compare/v2.0.0...v2.1.0
-[2.0.0]: https://github.com/KaririCode-Framework/kariricode-property-inspector/compare/v1.2.3...v2.0.0
+[3.0.0]: https://github.com/KaririCode-PHP/property-inspector/compare/v2.1.0...HEAD
+[2.1.0]: https://github.com/KaririCode-PHP/property-inspector/compare/v2.0.0...v2.1.0
+[2.0.0]: https://github.com/KaririCode-PHP/property-inspector/compare/v1.2.3...v2.0.0
