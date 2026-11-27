@@ -1,6 +1,8 @@
 name: CI
 
 # Spec V4.3.3 §29.1 quality gate and §32 supply chain (ADR-007).
+# The toolchain comes from KaririCode Devkit (kcode 1.2.1, pinned by version
+# and SHA-256) and runs the root configs (ADR-013).
 # Actions are pinned by full commit SHA because tags can be moved
 # (GHSA-mrrh-fwg8-r2c3 / CVE-2025-30066). The comment keeps the tag readable.
 
@@ -13,6 +15,10 @@ on:
 
 permissions:
   contents: read
+
+env:
+  KCODE_VERSION: 1.2.1
+  KCODE_SHA256: 1bc43b06798b4e7fc1df341cc505f316549f0dd5efb9c8d80031415b0cdf3e3b
 
 jobs:
   quality:
@@ -30,6 +36,15 @@ jobs:
 
       - name: Install from composer.lock
         run: composer install --no-interaction --no-progress --prefer-dist
+
+      - name: Install kcode ${{ env.KCODE_VERSION }}, checksum verified
+        run: |
+          curl -fsSLo kcode.phar "https://github.com/KaririCode-PHP/devkit/releases/download/v${KCODE_VERSION}/kcode.phar"
+          echo "${KCODE_SHA256}  kcode.phar" | sha256sum -c -
+          sudo install -m 0755 kcode.phar /usr/local/bin/kcode
+
+      - name: Install the toolchain pinned in devkit.php
+        run: kcode init
 
       - name: Quality gate (cs, phpstan, psalm, complexity, tests, conformance, security)
         run: composer quality

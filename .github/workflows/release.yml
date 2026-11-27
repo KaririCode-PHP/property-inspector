@@ -2,7 +2,8 @@ name: Release
 
 # Publishes a GitHub release for a version tag after the full gate passes.
 # The release body is the tag's section of CHANGELOG.md; the job fails without one.
-# Actions pinned by commit SHA (§32, ADR-007). Tags must be signed (git tag -s).
+# Actions pinned by commit SHA (§32, ADR-007); kcode pinned by version and
+# SHA-256 (ADR-013).
 
 on:
   push:
@@ -10,6 +11,10 @@ on:
 
 permissions:
   contents: write
+
+env:
+  KCODE_VERSION: 1.2.1
+  KCODE_SHA256: 1bc43b06798b4e7fc1df341cc505f316549f0dd5efb9c8d80031415b0cdf3e3b
 
 jobs:
   release:
@@ -27,6 +32,15 @@ jobs:
 
       - name: Install from composer.lock
         run: composer install --no-interaction --no-progress --prefer-dist
+
+      - name: Install kcode ${{ env.KCODE_VERSION }}, checksum verified
+        run: |
+          curl -fsSLo kcode.phar "https://github.com/KaririCode-PHP/devkit/releases/download/v${KCODE_VERSION}/kcode.phar"
+          echo "${KCODE_SHA256}  kcode.phar" | sha256sum -c -
+          sudo install -m 0755 kcode.phar /usr/local/bin/kcode
+
+      - name: Install the toolchain pinned in devkit.php
+        run: kcode init
 
       - name: Quality gate
         run: composer quality
