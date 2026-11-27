@@ -267,13 +267,19 @@ final class SpecConformanceTest extends TestCase
         // The contract is the only runtime dependency (§31, ADR-009).
         self::assertSame(['php', 'kariricode/contract'], array_keys((array) ($composer['require'] ?? [])));
         self::assertSame('^2.12', $composer['require']['kariricode/contract'] ?? null, 'the Inspection contracts arrive in 2.12.0');
-        $dev = (array) ($composer['require-dev'] ?? []);
-        foreach (['phpunit/phpunit', 'phpstan/phpstan', 'vimeo/psalm', 'friendsofphp/php-cs-fixer', 'infection/infection', 'nikic/php-parser'] as $tool) {
-            self::assertArrayHasKey($tool, $dev);
+        // kcode installs the toolchain and runs the root configs (ADR-013): no
+        // require-dev, and every tool pinned to an exact version in devkit.php.
+        self::assertArrayNotHasKey('require-dev', $composer);
+        $devkit = require SourceTree::root() . '/devkit.php';
+        self::assertIsArray($devkit);
+        self::assertTrue($devkit['root_configs'] ?? null, 'the Specification configs, not the generated ones');
+        $tools = (array) ($devkit['tools'] ?? []);
+        foreach (['phpunit', 'phpstan', 'psalm', 'php-cs-fixer', 'infection/infection'] as $tool) {
+            self::assertArrayHasKey($tool, $tools);
+            self::assertMatchesRegularExpression('/\A\d+\.\d+\.\d+\z/', (string) $tools[$tool], "{$tool} is pinned exactly (§32)");
         }
-        self::assertArrayNotHasKey('kariricode/devkit', $dev, 'the Specification prevails over the Devkit');
 
-        foreach (['phpunit.xml.dist', 'phpstan.neon', 'psalm.xml', '.php-cs-fixer.dist.php', 'infection.json5', 'composer.lock', 'tools/complexity.php', 'tools/secret-scan.php', 'tools/sbom.php'] as $file) {
+        foreach (['phpunit.xml.dist', 'phpstan.neon', 'psalm.xml', '.php-cs-fixer.dist.php', 'infection.json5', 'composer.lock', 'devkit.php', 'tools/complexity.php', 'tools/secret-scan.php', 'tools/sbom.php'] as $file) {
             self::assertFileExists(SourceTree::root() . '/' . $file);
         }
     }

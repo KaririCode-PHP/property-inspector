@@ -1,9 +1,13 @@
-# Spec V4.3.3 §29.1: level max, zero errors, no baseline (ADR-007).
+# Spec V4.3.3 §29.1: level max, zero errors, no baseline (ADR-007). kcode
+# installs the toolchain into .kcode/ and runs it with this file (ADR-013).
 parameters:
     level: max
     paths:
         - src
         - tools
+    # tools/complexity.php reads the AST with nikic/php-parser from .kcode/.
+    scanDirectories:
+        - .kcode/vendor/nikic/php-parser/lib
     tmpDir: build/.phpstan
     checkMissingCallableSignature: true
     treatPhpDocTypesAsCertain: false

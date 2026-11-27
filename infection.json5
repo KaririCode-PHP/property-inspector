@@ -1,5 +1,6 @@
 {
-    "$schema": "vendor/infection/infection/resources/schema.json",
+    "$schema": ".kcode/vendor/infection/infection/resources/schema.json",
+    "phpUnit": {"customPath": ".kcode/vendor/bin/phpunit"},
     "source": {"directories": ["src"]},
     "tmpDir": "build/infection/tmp",
     "logs": {"text": "build/infection/infection.log", "summary": "build/infection/summary.log"},

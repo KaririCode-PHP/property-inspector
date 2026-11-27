@@ -69,10 +69,24 @@ function main(string $root): int
         return 1;
     }
 
+    // The toolchain is installed by kcode (ADR-013); its lock lists the development components.
+    $toolchain = [];
+    $toolchainJson = is_file($root . '/.kcode/composer.lock') ? file_get_contents($root . '/.kcode/composer.lock') : false;
+    if (false !== $toolchainJson) {
+        $decoded = json_decode($toolchainJson, true, 512, JSON_THROW_ON_ERROR);
+        $toolchain = \is_array($decoded) ? $decoded : [];
+    }
+
     $components = [];
     $counts = ['required' => 0, 'excluded' => 0];
-    foreach (['packages' => 'required', 'packages-dev' => 'excluded'] as $section => $scope) {
-        foreach ((array) ($lock[$section] ?? []) as $package) {
+    $sections = [
+        [$lock, 'packages', 'required'],
+        [$lock, 'packages-dev', 'excluded'],
+        [$toolchain, 'packages', 'excluded'],
+        [$toolchain, 'packages-dev', 'excluded'],
+    ];
+    foreach ($sections as [$source, $section, $scope]) {
+        foreach ((array) ($source[$section] ?? []) as $package) {
             $component = \is_array($package) ? component($package, $scope) : null;
             if (null !== $component) {
                 $components[] = $component;

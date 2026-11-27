@@ -21,7 +21,8 @@ use PhpParser\Node\Stmt;
 use PhpParser\NodeFinder;
 use PhpParser\ParserFactory;
 
-require \dirname(__DIR__) . '/vendor/autoload.php';
+// nikic/php-parser comes with the toolchain kcode installs (ADR-013).
+require \dirname(__DIR__) . '/.kcode/vendor/autoload.php';
 
 const MAX_CYCLOMATIC = 10;
 const MAX_COGNITIVE = 15;

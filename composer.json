@@ -29,14 +29,6 @@
         "php": "^8.4",
         "kariricode/contract": "^2.12"
     },
-    "require-dev": {
-        "friendsofphp/php-cs-fixer": "^3.75",
-        "infection/infection": "^0.29",
-        "nikic/php-parser": "^5.4",
-        "phpstan/phpstan": "^2.1",
-        "phpunit/phpunit": "^12.5",
-        "vimeo/psalm": "^6.10"
-    },
     "autoload": {
         "psr-4": {
             "KaririCode\\PropertyInspector\\": "src"
@@ -51,21 +43,22 @@
         ]
     },
     "scripts": {
-        "test": "phpunit --testsuite=Unit,Integration",
-        "test-conformance": "phpunit --testsuite=Conformance",
-        "phpstan": "phpstan analyse --no-progress --memory-limit=1G",
-        "psalm": "psalm --no-cache --no-progress --show-info=false",
-        "cs-check": "php-cs-fixer fix --dry-run --diff",
-        "cs-fix": "php-cs-fixer fix",
+        "test": "kcode test --testsuite=Unit,Integration",
+        "test-conformance": "kcode test --testsuite=Conformance",
+        "phpstan": "kcode run phpstan analyse --no-progress --memory-limit=1G",
+        "psalm": "kcode run psalm --no-cache --no-progress --show-info=false",
+        "cs-check": "kcode cs:fix --check",
+        "cs-fix": "kcode cs:fix",
         "complexity": "@php tools/complexity.php src",
         "secret-scan": "@php tools/secret-scan.php",
         "sbom": "@php tools/sbom.php",
-        "infection": "infection --threads=max --no-progress --show-mutations",
+        "infection": "kcode run infection --threads=max --no-progress --show-mutations",
         "security": [
             "@composer validate --strict",
             "@composer audit --locked",
+            "@composer audit --locked --working-dir=.kcode",
             "@secret-scan",
-            "phpunit --group=fail-closed"
+            "kcode test --group=fail-closed"
         ],
         "quality": [
             "@cs-check",
@@ -84,10 +77,7 @@
     },
     "config": {
         "sort-packages": true,
-        "optimize-autoloader": true,
-        "allow-plugins": {
-            "infection/extension-installer": false
-        }
+        "optimize-autoloader": true
     },
     "extra": {
         "kariricode": {
